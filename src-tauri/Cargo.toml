@@ -1,0 +1,69 @@
+[package]
+name = "halo"
+version = "0.1.0"
+description = "A desktop music player"
+authors = ["Saravix"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "halo_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+halo-core = { path = "../crates/halo-core" }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+walkdir = "2"
+lofty = "0.21"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+sha2 = "0.10"
+hex = "0.4"
+rodio = { version = "0.20", default-features = false, features = [
+    "symphonia-mp3",    # MP3
+    "symphonia-flac",   # FLAC
+    "symphonia-wav",    # WAV / PCM
+    "symphonia-aiff",   # AIFF
+    "symphonia-vorbis", # Vorbis codec + OGG container (symphonia-ogg doesn't exist in 0.20)
+    "symphonia-isomp4", # M4A / MP4 container
+    "symphonia-aac",    # AAC codec
+    "symphonia-alac",   # Apple Lossless
+] }
+rubato = "0.16"
+cpal = "0.15"
+souvlaki = "0.8"
+ureq = { version = "2", features = ["json"] }
+tokio = { version = "1", features = ["rt"] }
+md5 = "0.7"
+urlencoding = "2"
+notify = "6"
+
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Dwm",
+    "Win32_Storage_EnhancedStorage",
+    "Win32_System_Com",
+    "Win32_Foundation",
+    "Win32_System_WinRT",
+    "Foundation",
+    "Media",
+    "Storage",
+    "Storage_Streams",
+] }
+

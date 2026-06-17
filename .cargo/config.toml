@@ -1,0 +1,16 @@
+# ── Faster linker ─────────────────────────────────────────────────────────────
+# rust-lld is LLVM's LLD bundled with Rust (3-5x faster than MSVC link.exe).
+# Requires two directories on PATH (added to user PATH via fix-path.ps1):
+#   ~/.rustup/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/x86_64-pc-windows-msvc/bin
+#   ~/.rustup/toolchains/stable-x86_64-pc-windows-msvc/lib/rustlib/x86_64-pc-windows-msvc/bin/gcc-ld
+# If toolchain changes: rustup component add llvm-tools-preview
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"
+
+# ── Compilation cache ──────────────────────────────────────────────────────────
+# sccache caches compiled crates across clean builds and CI runs.
+# Install: cargo install sccache  (or: winget install Mozilla.Sccache)
+# Then uncomment:
+
+# [build]
+# rustc-wrapper = "sccache"

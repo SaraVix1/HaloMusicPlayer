@@ -1,0 +1,25 @@
+[workspace]
+members = ["src-tauri", "crates/*"]
+resolver = "2"
+
+# Local patch: adds the MPRIS `DesktopEntry` property (missing upstream as of
+# 0.8.3) so GNOME Shell's media widget can resolve the app icon. See
+# vendor/souvlaki/src/platform/mpris/dbus/interfaces.rs.
+[patch.crates-io]
+souvlaki = { path = "vendor/souvlaki" }
+
+# Faster incremental dev builds: keep enough debug info for backtraces
+# (line numbers), split debug data into separate files so the linker
+# moves less data per rebuild. Profiles must live at the workspace root —
+# Cargo ignores them in member packages.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
+incremental = true
+codegen-units = 256   # max parallelism during codegen
+
+# Compile C/C++ dependencies (rusqlite bundled SQLite, windows-sys, etc.)
+# at opt-level 1 so their generated code isn't enormous.
+# This only affects dependency crates, not your own code.
+[profile.dev.package."*"]
+opt-level = 1

@@ -1,0 +1,15 @@
+pub mod eq;
+pub mod lastfm;
+pub mod smart_playlists;
+pub mod folders;
+pub mod library;
+pub mod metadata_editor;
+pub mod lyrics;
+pub mod player;
+pub mod playlists;
+pub mod scan;
+pub mod search;
+pub mod sleep_timer;
+pub mod stats;
+pub mod ui;
+pub mod window;

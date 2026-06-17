@@ -1,0 +1,5 @@
+# rust-lld is bundled with rustup; on MSVC targets it's a drop-in
+# replacement for link.exe and links 2-5x faster. Also sidesteps the
+# Git-link.exe shadowing hazard documented in docs/HAZARDS.md.
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"
