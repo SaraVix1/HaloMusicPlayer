@@ -84,7 +84,7 @@ halo/
 │   │   │   └── media_controls.rs # souvlaki wrapper — implements NowPlayingController; spawns SMTC/MPRIS thread
 │   │   ├── db/
 │   │   │   ├── mod.rs           # DB connection (WAL mode, FK enforcement, migrations)
-│   │   │   └── migrations.rs    # Versioned runner: 001_initial.sql (v1), 002_stats.sql (v2)
+│   │   │   └── migrations.rs    # Versioned runner (PRAGMA user_version): 001–009, each file wired explicitly
 │   │   ├── scanner/
 │   │   │   ├── mod.rs           # Scan orchestration + progress events
 │   │   │   ├── walker.rs        # Recursive folder walk, extension filter
@@ -103,13 +103,15 @@ halo/
 │   │       ├── sleep_timer.rs   # Sleep timer state, tick(), IPC commands
 │   │       ├── stats.rs         # play_count / skip_count / rating / last_played_at
 │   │       ├── eq.rs            # EQ IPC: bands/bypass/presets, user presets, per-device profiles, set_eq_stereo / set_eq_dynamic; restore_eq_state + load_device_eq_if_exists
-│   │       ├── lastfm.rs        # Last.fm: app API key/secret are compiled-in constants (API_KEY/API_SECRET — developer fills once; end users never enter them). Single browser token sign-in (start_auth → user authorises → complete_auth, auto-polled by Settings). Now-playing, scrobble (gated by should_scrobble), offline queue w/ retry, love/unlove (lastfm_love / lastfm_is_loved). Per-user session is memory-only (never persisted, cleared on exit) so each person on a shared machine signs into their own account
+│   │       ├── lastfm.rs        # Last.fm: app API key/secret entered in Settings → Advanced and persisted in app_state. Browser token sign-in (start_auth → user authorises → complete_auth, auto-polled by Settings). Now-playing, scrobble (gated by should_scrobble), offline queue w/ retry, love/unlove (lastfm_love / lastfm_is_loved). Per-user session is memory-only by default; opt-in "Stay signed in" (lastfm_set_stay_signed_in) persists it. Error 9 (invalid session) clears it
 │   │       ├── smart_playlists.rs # Rule-based smart playlist CRUD + track evaluation
 │   │       ├── ui.rs            # get_theme / set_theme (emits "theme-changed"); get_pref / set_pref (generic app_state key/value store) + read_close_behavior
 │   │       └── window.rs        # Mini player window build, open/restore, position persistence; Linux-specific: transparent(true) + set_size after build + bottom-right default position; set_always_on_top/set_focus use .ok() (Wayland blocks both — a propagated error would skip main.hide())
 │   ├── migrations/
 │   │   ├── 001_initial.sql      # Full schema (idempotent CREATE TABLE IF NOT EXISTS)
-│   │   └── 002_stats.sql        # rating, play_count, skip_count, last_played_at columns
+│   │   ├── 002_stats.sql        # rating, play_count, skip_count, last_played_at columns
+│   │   ├── 003_lyrics.sql … 008_waveform_rms.sql  # lyrics, EQ presets, smart playlists, device EQ, waveform cache
+│   │   └── 009_lastfm_queue.sql # Last.fm offline scrobble queue
 │   ├── capabilities/
 │   │   └── default.json         # Tauri v2 permissions: core, opener, dialog
 │   └── Cargo.toml

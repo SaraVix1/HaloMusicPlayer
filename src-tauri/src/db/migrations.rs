@@ -43,5 +43,12 @@ pub fn run(conn: &Connection) -> Result<()> {
         conn.execute_batch("PRAGMA user_version = 8;")?;
     }
 
+    if version < 9 {
+        // Offline Last.fm scrobble queue. Originally shipped as a second 007_*
+        // file that the runner never executed, so the table was never created.
+        conn.execute_batch(include_str!("../../migrations/009_lastfm_queue.sql"))?;
+        conn.execute_batch("PRAGMA user_version = 9;")?;
+    }
+
     Ok(())
 }

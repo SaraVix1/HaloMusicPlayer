@@ -518,6 +518,7 @@ export interface LastFmStatus {
   username: string | null;
   pending: boolean;
   configured: boolean;
+  stay_signed_in: boolean;
 }
 
 export const lastfmGetStatus = () => invoke<LastFmStatus>("lastfm_get_status");
@@ -526,6 +527,8 @@ export const lastfmSetCredentials = (apiKey: string, apiSecret: string) =>
 export const lastfmStartAuth = () => invoke<string>("lastfm_start_auth");
 export const lastfmCompleteAuth = () => invoke<string>("lastfm_complete_auth");
 export const lastfmLogout = () => invoke<void>("lastfm_logout");
+export const lastfmSetStaySignedIn = (enabled: boolean) =>
+  invoke<void>("lastfm_set_stay_signed_in", { enabled });
 export const lastfmLove = (trackId: number, love: boolean) =>
   invoke<void>("lastfm_love", { trackId, love });
 export const lastfmIsLoved = (trackId: number) =>

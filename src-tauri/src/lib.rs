@@ -327,6 +327,7 @@ pub fn run() {
             commands::library::get_most_played,
             commands::lastfm::lastfm_get_status,
             commands::lastfm::lastfm_set_credentials,
+            commands::lastfm::lastfm_set_stay_signed_in,
             commands::lastfm::lastfm_start_auth,
             commands::lastfm::lastfm_complete_auth,
             commands::lastfm::lastfm_logout,
