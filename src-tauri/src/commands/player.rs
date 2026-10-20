@@ -2,7 +2,7 @@ use crate::audio::{PlaybackStatus, PlayerHandle, PlayerState};
 use crate::commands::stats;
 use halo_core::audio_event::AudioEvent;
 use halo_core::playback::{is_played, should_scrobble};
-use halo_core::queue::{next_index, should_crossfade, RepeatMode, ShuffleHistory as CoreHistory};
+use halo_core::queue::{next_index, should_crossfade, RepeatMode, ShuffleOrder};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -11,38 +11,17 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 const KEY_CURRENT_INDEX: &str = "player.current_index";
 const KEY_SHUFFLE: &str = "player.shuffle";
+/// Shuffled play order (JSON array of queue indices) — written only when the
+/// permutation changes.
+const KEY_SHUFFLE_ORDER: &str = "player.shuffle_order";
+/// Cursor into the shuffle order — written on every Next / Previous.
+const KEY_SHUFFLE_POS: &str = "player.shuffle_pos";
 const KEY_REPEAT: &str = "player.repeat";
 const KEY_VOLUME: &str = "player.volume";
 const KEY_CROSSFADE_MS: &str = "player.crossfade_ms";
 const KEY_POSITION_MS: &str = "player.position_ms";
 const KEY_STATUS: &str = "player.status";
 const KEY_RESUME_ON_LAUNCH: &str = "playback.resume_on_launch";
-
-/// Tauri managed-state wrapper around the pure `CoreHistory`.
-/// `Mutex` is required because Tauri's managed state must be `Send + Sync`.
-pub struct ShuffleHistory(pub Mutex<CoreHistory>);
-
-impl ShuffleHistory {
-    pub fn new() -> Self {
-        Self(Mutex::new(CoreHistory::new()))
-    }
-
-    pub fn push(&self, index: i64) {
-        if let Ok(mut h) = self.0.lock() {
-            h.push(index);
-        }
-    }
-
-    pub fn pop(&self) -> Option<i64> {
-        self.0.lock().ok()?.pop()
-    }
-
-    pub fn clear(&self) {
-        if let Ok(mut h) = self.0.lock() {
-            h.clear();
-        }
-    }
-}
 
 #[derive(Serialize)]
 pub struct QueueTrack {
@@ -123,18 +102,139 @@ fn queue_length(conn: &Connection) -> Result<i64, String> {
 }
 
 fn track_at_index(conn: &Connection, index: i64) -> Result<Option<(i64, String)>, String> {
-    conn.query_row(
+    let row = |sql: &str| {
+        conn.query_row(sql, [index], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map(Some)
+        .or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            other => Err(other.to_string()),
+        })
+    };
+    // Fast path: every queue writer keeps positions contiguous (0..n-1), so the
+    // index-th track is the row at that position — an indexed point lookup.
+    if let Some(hit) = row(
+        "SELECT q.track_id, t.file_path FROM queue q
+         JOIN tracks t ON t.id = q.track_id
+         WHERE q.position = ?1",
+    )? {
+        return Ok(Some(hit));
+    }
+    // Fallback for a queue with gaps in its positions (shouldn't happen, but
+    // stay correct): the index-th row in position order.
+    row(
         "SELECT q.track_id, t.file_path FROM queue q
          JOIN tracks t ON t.id = q.track_id
          ORDER BY q.position ASC LIMIT 1 OFFSET ?1",
-        [index],
-        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
     )
-    .map(Some)
-    .or_else(|e| match e {
-        rusqlite::Error::QueryReturnedNoRows => Ok(None),
-        other => Err(other.to_string()),
-    })
+}
+
+// ── Shuffle order ─────────────────────────────────────────────────────────────
+//
+// In shuffle mode the play order is a Fisher-Yates permutation of the queue
+// (`halo_core::queue::ShuffleOrder`): Next walks forward, Previous walks back,
+// so nothing repeats until every track has played and Previous retraces
+// exactly what Next played. Queue edits keep it in sync; if it is ever stale
+// (queue length changed some other way) it is regenerated from the current
+// track.
+//
+// Large queues: the working copy lives in memory (`ShuffleState`) so Next /
+// Previous never re-read or re-parse it. Persistence is split so the hot path
+// stays tiny: the cursor (`player.shuffle_pos`) is written on every move, the
+// full order (`player.shuffle_order`, ~330 KB of JSON at 50k tracks) only when
+// the permutation itself changes. Lock order: DB connection first, then
+// `ShuffleState` — never the other way round.
+
+/// In-memory working copy of the shuffle order. `None` until first use (then
+/// loaded + validated from the DB once) or after shuffle is turned off.
+#[derive(Default)]
+pub struct ShuffleState(Mutex<Option<ShuffleOrder>>);
+
+fn shuffle_enabled(conn: &Connection) -> bool {
+    read_int(conn, KEY_SHUFFLE).unwrap_or(0) != 0
+}
+
+fn read_repeat(conn: &Connection) -> RepeatMode {
+    RepeatMode::parse(read_string(conn, KEY_REPEAT).as_deref().unwrap_or("off"))
+}
+
+/// The order persisted by a previous session, fully validated against the
+/// queue. Only read on a cache miss (startup / after the queue changed size).
+fn read_saved_shuffle(conn: &Connection, length: i64) -> Option<ShuffleOrder> {
+    let order: Vec<i64> = serde_json::from_str(&read_string(conn, KEY_SHUFFLE_ORDER)?).ok()?;
+    let pos = read_int(conn, KEY_SHUFFLE_POS).unwrap_or(0).max(0) as usize;
+    Some(ShuffleOrder { order, pos }).filter(|o| o.is_consistent(length))
+}
+
+fn write_shuffle_order(conn: &Connection, order: &ShuffleOrder) -> Result<(), String> {
+    let json = serde_json::to_string(&order.order).map_err(|e| e.to_string())?;
+    write_string(conn, KEY_SHUFFLE_ORDER, &json)?;
+    write_string(conn, KEY_SHUFFLE_POS, &order.pos.to_string())
+}
+
+/// A working copy of the shuffle order for a queue of `length` tracks whose
+/// current index is `current`. Served from memory; on a miss (or if the queue
+/// length no longer matches — an O(1) check) it is loaded from the DB, or
+/// regenerated and persisted. Callers mutate the copy and hand it to
+/// `commit_shuffle` once the change has actually taken effect.
+fn load_shuffle(app: &AppHandle, conn: &Connection, length: i64, current: i64) -> ShuffleOrder {
+    let state = app.state::<ShuffleState>();
+    let mut cached = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    if cached.as_ref().map(|o| o.order.len() as i64) != Some(length) {
+        let order = read_saved_shuffle(conn, length).unwrap_or_else(|| {
+            let fresh = ShuffleOrder::new(length, current, &mut fastrand::Rng::new());
+            let _ = write_shuffle_order(conn, &fresh);
+            fresh
+        });
+        *cached = Some(order);
+    }
+    let mut order = cached.clone().unwrap_or_default();
+    // The current track was changed outside the order (e.g. before shuffle
+    // was on): re-sync the cursor without losing the rest of the pass.
+    if order.current() != Some(current) {
+        order.jump_to(current);
+    }
+    order
+}
+
+/// Make `order` the live shuffle order: always persists the cursor (tiny), and
+/// the full order only if the permutation differs from the cached one.
+fn commit_shuffle(app: &AppHandle, conn: &Connection, order: &ShuffleOrder) -> Result<(), String> {
+    let state = app.state::<ShuffleState>();
+    let mut cached = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    if cached.as_ref().map(|c| &c.order) != Some(&order.order) {
+        write_shuffle_order(conn, order)?;
+    } else {
+        write_string(conn, KEY_SHUFFLE_POS, &order.pos.to_string())?;
+    }
+    *cached = Some(order.clone());
+    Ok(())
+}
+
+fn clear_shuffle(app: &AppHandle, conn: &Connection) -> Result<(), String> {
+    *app.state::<ShuffleState>().0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    delete_key(conn, KEY_SHUFFLE_ORDER)?;
+    delete_key(conn, KEY_SHUFFLE_POS)
+}
+
+/// The queue index that should play after `current`, honouring shuffle and
+/// repeat. Changes no state: in shuffle mode the advanced order is returned so
+/// the caller can `commit_shuffle` it only once the track actually loads.
+fn upcoming_index(
+    app: &AppHandle,
+    conn: &Connection,
+    current: i64,
+    length: i64,
+) -> (Option<i64>, Option<ShuffleOrder>) {
+    let repeat = read_repeat(conn);
+    if shuffle_enabled(conn) {
+        let mut order = load_shuffle(app, conn, length, current);
+        let next = order.advance(&repeat, &mut fastrand::Rng::new());
+        (next, Some(order))
+    } else {
+        (next_index(current, length, &repeat), None)
+    }
 }
 
 pub fn emit_state(app: &AppHandle) {
@@ -183,7 +283,7 @@ fn build_full_state(app: &AppHandle) -> Result<FullPlayerState, String> {
     let conn = db.lock().map_err(|e| e.to_string())?;
     let current_index = read_int(&conn, KEY_CURRENT_INDEX);
     let queue_length = queue_length(&conn)?;
-    let shuffle = read_int(&conn, KEY_SHUFFLE).unwrap_or(0) != 0;
+    let shuffle = shuffle_enabled(&conn);
     let repeat = RepeatMode::parse(
         read_string(&conn, KEY_REPEAT).as_deref().unwrap_or("off"),
     );
@@ -314,8 +414,22 @@ pub fn play_queue_index(app: AppHandle, index: i64) -> Result<(), String> {
     let db = app.state::<Mutex<Connection>>();
     {
         let conn = db.lock().map_err(|e| e.to_string())?;
+        // Explicit pick in shuffle mode: make it the next entry in the order
+        // so the rest of the shuffle pass is preserved.
+        let order = if shuffle_enabled(&conn) {
+            let length = queue_length(&conn)?;
+            let current = read_int(&conn, KEY_CURRENT_INDEX).unwrap_or(index);
+            let mut order = load_shuffle(&app, &conn, length, current);
+            order.jump_to(index);
+            Some(order)
+        } else {
+            None
+        };
         if !load_index(&player_handle, &conn, index)? {
             return Err(format!("no track at index {index}"));
+        }
+        if let Some(order) = order {
+            commit_shuffle(&app, &conn, &order)?;
         }
     }
     emit_state(&app);
@@ -445,16 +559,14 @@ pub fn next_track(app: AppHandle) -> Result<(), String> {
             player_handle.stop();
         } else {
             let current = read_int(&conn, KEY_CURRENT_INDEX).unwrap_or(0);
-            let shuffle = read_int(&conn, KEY_SHUFFLE).unwrap_or(0) != 0;
-            let repeat = RepeatMode::parse(
-                read_string(&conn, KEY_REPEAT).as_deref().unwrap_or("off"),
-            );
-            if let Some(idx) = next_index(current, length, shuffle, &repeat) {
-                // Record where we came from so Previous can return here.
-                app.state::<ShuffleHistory>().push(current);
-                load_index(&player_handle, &conn, idx)?;
-            } else {
-                player_handle.stop();
+            match upcoming_index(&app, &conn, current, length) {
+                (Some(idx), order) => {
+                    load_index(&player_handle, &conn, idx)?;
+                    if let Some(order) = order {
+                        commit_shuffle(&app, &conn, &order)?;
+                    }
+                }
+                (None, _) => player_handle.stop(),
             }
         }
     }
@@ -492,24 +604,27 @@ pub fn previous_track(app: AppHandle) -> Result<(), String> {
             };
             let length = queue_length(&conn)?;
             if length > 0 {
-                let shuffle = read_int(&conn, KEY_SHUFFLE).unwrap_or(0) != 0;
-                let prev = if shuffle {
-                    // In shuffle mode, go back to the actual last-played track.
-                    let history = app.state::<ShuffleHistory>();
-                    match history.pop() {
-                        Some(idx) => idx,
+                let current = read_int(&conn, KEY_CURRENT_INDEX).unwrap_or(0);
+                if shuffle_enabled(&conn) {
+                    // Step back through the shuffle order — retraces exactly
+                    // what Next played.
+                    let mut order = load_shuffle(&app, &conn, length, current);
+                    match order.prev() {
+                        Some(prev) => {
+                            load_index(&player_handle, &conn, prev)?;
+                            commit_shuffle(&app, &conn, &order)?;
+                        }
                         None => {
-                            // Nothing in history — just restart current track from 0.
+                            // Start of the shuffle pass — restart the current track.
                             let _ = player_handle.seek(0);
                             emit_state(&app);
                             return Ok(());
                         }
                     }
                 } else {
-                    let current = read_int(&conn, KEY_CURRENT_INDEX).unwrap_or(0);
-                    if current == 0 { length - 1 } else { current - 1 }
-                };
-                load_index(&player_handle, &conn, prev)?;
+                    let prev = if current == 0 { length - 1 } else { current - 1 };
+                    load_index(&player_handle, &conn, prev)?;
+                }
             }
         }
         if let Some(tid) = scrobble_id {
@@ -526,6 +641,15 @@ pub fn set_shuffle(app: AppHandle, enabled: bool) -> Result<(), String> {
         let db = app.state::<Mutex<Connection>>();
         let conn = db.lock().map_err(|e| e.to_string())?;
         write_string(&conn, KEY_SHUFFLE, if enabled { "1" } else { "0" })?;
+        // Fresh order starting from the current track, or drop it.
+        if enabled {
+            let length = queue_length(&conn)?;
+            let current = read_int(&conn, KEY_CURRENT_INDEX).unwrap_or(0);
+            let order = ShuffleOrder::new(length, current, &mut fastrand::Rng::new());
+            commit_shuffle(&app, &conn, &order)?;
+        } else {
+            clear_shuffle(&app, &conn)?;
+        }
     }
     emit_state(&app);
     Ok(())
@@ -596,17 +720,23 @@ pub fn get_queue(db: State<Mutex<Connection>>) -> Result<Vec<QueueTrack>, String
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
 }
 
+/// Replace the whole queue in one transaction. Row-by-row autocommit took ~7 s
+/// for a 50k-track queue (one WAL commit per row) while holding the DB lock;
+/// a single transaction with a prepared insert takes well under 100 ms.
 fn replace_queue(conn: &Connection, track_ids: &[i64]) -> Result<(), String> {
-    conn.execute("DELETE FROM queue", [])
-        .map_err(|e| e.to_string())?;
-    for (idx, tid) in track_ids.iter().enumerate() {
-        conn.execute(
-            "INSERT INTO queue (track_id, position) VALUES (?1, ?2)",
-            params![tid, idx as i64],
-        )
-        .map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM queue", []).map_err(|e| e.to_string())?;
+    {
+        let mut insert = tx
+            .prepare("INSERT INTO queue (track_id, position) VALUES (?1, ?2)")
+            .map_err(|e| e.to_string())?;
+        for (idx, tid) in track_ids.iter().enumerate() {
+            insert
+                .execute(params![tid, idx as i64])
+                .map_err(|e| e.to_string())?;
+        }
     }
-    Ok(())
+    tx.commit().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -625,8 +755,14 @@ pub fn set_queue_and_play(
         replace_queue(&conn, &track_ids)?;
         let idx = start_index.clamp(0, track_ids.len() as i64 - 1);
         load_index(&player_handle, &conn, idx)?;
+        // New queue → new shuffle pass starting from the chosen track.
+        if shuffle_enabled(&conn) {
+            let order = ShuffleOrder::new(track_ids.len() as i64, idx, &mut fastrand::Rng::new());
+            commit_shuffle(&app, &conn, &order)?;
+        } else {
+            clear_shuffle(&app, &conn)?;
+        }
     }
-    app.state::<ShuffleHistory>().clear();
     emit_state(&app);
     Ok(())
 }
@@ -643,11 +779,19 @@ pub fn add_to_queue(app: AppHandle, track_id: i64) -> Result<(), String> {
                 |row| row.get(0),
             )
             .map_err(|e| e.to_string())?;
+        let length_before = queue_length(&conn)?;
         conn.execute(
             "INSERT INTO queue (track_id, position) VALUES (?1, ?2)",
             params![track_id, next_pos],
         )
         .map_err(|e| e.to_string())?;
+        // Slot the new track in among the unplayed part of the shuffle order.
+        if shuffle_enabled(&conn) && length_before > 0 {
+            let current = read_int(&conn, KEY_CURRENT_INDEX).unwrap_or(0);
+            let mut order = load_shuffle(&app, &conn, length_before, current);
+            order.on_insert(length_before, &mut fastrand::Rng::new());
+            commit_shuffle(&app, &conn, &order)?;
+        }
     }
     emit_state(&app);
     Ok(())
@@ -666,14 +810,35 @@ pub fn remove_from_queue(app: AppHandle, queue_id: i64) -> Result<(), String> {
                 |row| row.get(0),
             )
             .ok();
-        conn.execute("DELETE FROM queue WHERE id = ?1", [queue_id])
-            .map_err(|e| e.to_string())?;
+        // Capture the shuffle order against the queue as it was before removal.
+        let mut order = match (shuffle_enabled(&conn), removed_position) {
+            (true, Some(_)) => {
+                let length_before = queue_length(&conn)?;
+                let current = read_int(&conn, KEY_CURRENT_INDEX).unwrap_or(0);
+                Some(load_shuffle(&app, &conn, length_before, current))
+            }
+            _ => None,
+        };
+        // Delete + renumber atomically so positions stay contiguous (the
+        // indexed lookup in track_at_index relies on it).
+        {
+            let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+            tx.execute("DELETE FROM queue WHERE id = ?1", [queue_id])
+                .map_err(|e| e.to_string())?;
+            if let Some(removed) = removed_position {
+                tx.execute(
+                    "UPDATE queue SET position = position - 1 WHERE position > ?1",
+                    [removed],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            tx.commit().map_err(|e| e.to_string())?;
+        }
         if let Some(removed) = removed_position {
-            conn.execute(
-                "UPDATE queue SET position = position - 1 WHERE position > ?1",
-                [removed],
-            )
-            .map_err(|e| e.to_string())?;
+            if let Some(order) = order.as_mut() {
+                order.on_remove(removed);
+                commit_shuffle(&app, &conn, order)?;
+            }
             let current = read_int(&conn, KEY_CURRENT_INDEX);
             if let Some(curr) = current {
                 if removed < curr {
@@ -682,7 +847,11 @@ pub fn remove_from_queue(app: AppHandle, queue_id: i64) -> Result<(), String> {
                     player_handle.stop();
                     let length = queue_length(&conn)?;
                     if length > 0 {
-                        let new_idx = curr.min(length - 1);
+                        // Shuffle: continue with the next track in the order.
+                        let new_idx = order
+                            .as_ref()
+                            .and_then(|o| o.current())
+                            .unwrap_or(curr.min(length - 1));
                         load_index(&player_handle, &conn, new_idx)?;
                     } else {
                         delete_key(&conn, KEY_CURRENT_INDEX)?;
@@ -705,8 +874,8 @@ pub fn clear_queue(app: AppHandle) -> Result<(), String> {
         conn.execute("DELETE FROM queue", [])
             .map_err(|e| e.to_string())?;
         delete_key(&conn, KEY_CURRENT_INDEX)?;
+        clear_shuffle(&app, &conn)?;
     }
-    app.state::<ShuffleHistory>().clear();
     emit_state(&app);
     Ok(())
 }
@@ -769,14 +938,13 @@ fn on_track_finished(app: &AppHandle, finished_track_id: i64) -> bool {
         return true;
     }
     let current = read_int(&conn, KEY_CURRENT_INDEX).unwrap_or(0);
-    let shuffle = read_int(&conn, KEY_SHUFFLE).unwrap_or(0) != 0;
-    let repeat = RepeatMode::parse(
-        read_string(&conn, KEY_REPEAT).as_deref().unwrap_or("off"),
-    );
-    if let Some(idx) = next_index(current, length, shuffle, &repeat) {
-        app.state::<ShuffleHistory>().push(current);
+    if let (Some(idx), order) = upcoming_index(app, &conn, current, length) {
         let player_handle = app.state::<PlayerHandle>();
-        let _ = load_index(&player_handle, &conn, idx);
+        if load_index(&player_handle, &conn, idx).unwrap_or(false) {
+            if let Some(order) = order {
+                let _ = commit_shuffle(app, &conn, &order);
+            }
+        }
     }
     drop(conn);
     emit_state(app);
@@ -809,14 +977,11 @@ fn on_near_end(app: &AppHandle, _track_id: i64, remaining_ms: u64) -> bool {
         return false;
     }
     let current = read_int(&conn, KEY_CURRENT_INDEX).unwrap_or(0);
-    let shuffle = read_int(&conn, KEY_SHUFFLE).unwrap_or(0) != 0;
-    let repeat = RepeatMode::parse(
-        read_string(&conn, KEY_REPEAT).as_deref().unwrap_or("off"),
-    );
-    let Some(next_idx) = next_index(current, length, shuffle, &repeat) else {
+    // Peek: the advanced shuffle order is only saved once the crossfade starts.
+    let (Some(next_idx), order) = upcoming_index(app, &conn, current, length) else {
         return false;
     };
-    if next_idx == current && !matches!(repeat, RepeatMode::One) {
+    if next_idx == current && !matches!(read_repeat(&conn), RepeatMode::One) {
         return false;
     }
     let Ok(Some((next_track_id, file_path))) = track_at_index(&conn, next_idx) else {
@@ -828,11 +993,121 @@ fn on_near_end(app: &AppHandle, _track_id: i64, remaining_ms: u64) -> bool {
         .is_ok()
     {
         let _ = write_string(&conn, KEY_CURRENT_INDEX, &next_idx.to_string());
-        app.state::<ShuffleHistory>().push(current);
+        if let Some(order) = order {
+            let _ = commit_shuffle(app, &conn, &order);
+        }
         drop(conn);
         emit_state(app);
         true
     } else {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    /// Real on-disk DB (WAL, real migrations) with `n` tracks, in a fresh temp dir.
+    fn test_db(name: &str, n: i64) -> Connection {
+        let dir = std::env::temp_dir().join(format!("halo-test-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let conn = crate::db::open(dir).unwrap();
+        let tx = conn.unchecked_transaction().unwrap();
+        {
+            let mut ins = tx
+                .prepare("INSERT INTO tracks (id, file_path) VALUES (?1, ?2)")
+                .unwrap();
+            for i in 0..n {
+                ins.execute(params![i, format!("/music/{i}.flac")]).unwrap();
+            }
+        }
+        tx.commit().unwrap();
+        conn
+    }
+
+    #[test]
+    fn replace_queue_and_lookup_by_index() {
+        let conn = test_db("lookup", 100);
+        let ids: Vec<i64> = (0..100).rev().collect(); // queue order ≠ id order
+        replace_queue(&conn, &ids).unwrap();
+        assert_eq!(queue_length(&conn).unwrap(), 100);
+        for idx in [0, 1, 50, 99] {
+            let (tid, path) = track_at_index(&conn, idx).unwrap().unwrap();
+            assert_eq!(tid, ids[idx as usize]);
+            assert_eq!(path, format!("/music/{tid}.flac"));
+        }
+        assert_eq!(track_at_index(&conn, 100).unwrap(), None);
+        // Replacing again fully swaps the contents.
+        replace_queue(&conn, &[7, 8]).unwrap();
+        assert_eq!(queue_length(&conn).unwrap(), 2);
+        assert_eq!(track_at_index(&conn, 1).unwrap().unwrap().0, 8);
+    }
+
+    #[test]
+    fn lookup_falls_back_when_positions_have_gaps() {
+        let conn = test_db("gaps", 10);
+        replace_queue(&conn, &[0, 1, 2, 3]).unwrap();
+        // Simulate a legacy queue with a gap: positions 0, 1, 5, 6.
+        conn.execute("UPDATE queue SET position = position + 3 WHERE position >= 2", [])
+            .unwrap();
+        assert_eq!(track_at_index(&conn, 2).unwrap().unwrap().0, 2);
+        assert_eq!(track_at_index(&conn, 3).unwrap().unwrap().0, 3);
+        assert_eq!(track_at_index(&conn, 4).unwrap(), None);
+    }
+
+    #[test]
+    fn queue_position_index_exists() {
+        let conn = test_db("index", 0);
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_queue_position'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    /// Timing check for large queues. Ignored by default (timing varies by
+    /// machine); run with:
+    /// `cargo test -p halo --lib large_queue_timing -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn large_queue_timing() {
+        const N: i64 = 50_000;
+        let conn = test_db("timing", N);
+        let ids: Vec<i64> = (0..N).collect();
+
+        let t = Instant::now();
+        replace_queue(&conn, &ids).unwrap();
+        println!("replace_queue ({N} tracks):        {:>8.2} ms", t.elapsed().as_secs_f64() * 1e3);
+
+        let t = Instant::now();
+        for i in 0..1000 {
+            track_at_index(&conn, (i * 47) % N).unwrap().unwrap();
+        }
+        println!("track_at_index (avg of 1000):      {:>8.3} ms", t.elapsed().as_secs_f64());
+
+        let mut order = ShuffleOrder::new(N, 0, &mut fastrand::Rng::new());
+        let t = Instant::now();
+        write_shuffle_order(&conn, &order).unwrap();
+        println!("write full shuffle order (rare):   {:>8.2} ms", t.elapsed().as_secs_f64() * 1e3);
+
+        let t = Instant::now();
+        let loaded = read_saved_shuffle(&conn, N).unwrap();
+        println!("read + validate order (startup):   {:>8.2} ms", t.elapsed().as_secs_f64() * 1e3);
+        assert_eq!(loaded, order);
+
+        let t = Instant::now();
+        for _ in 0..1000 {
+            let mut copy = order.clone();
+            copy.advance(&RepeatMode::Off, &mut fastrand::Rng::new());
+            write_string(&conn, KEY_SHUFFLE_POS, &copy.pos.to_string()).unwrap();
+            order = copy;
+        }
+        println!("Next in shuffle (avg of 1000):     {:>8.3} ms", t.elapsed().as_secs_f64());
     }
 }

@@ -50,5 +50,10 @@ pub fn run(conn: &Connection) -> Result<()> {
         conn.execute_batch("PRAGMA user_version = 9;")?;
     }
 
+    if version < 10 {
+        conn.execute_batch(include_str!("../../migrations/010_queue_position_index.sql"))?;
+        conn.execute_batch("PRAGMA user_version = 10;")?;
+    }
+
     Ok(())
 }

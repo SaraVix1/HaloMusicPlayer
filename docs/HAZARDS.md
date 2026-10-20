@@ -302,6 +302,18 @@ On Windows/macOS, `transparent(true)` is harmless: the window is exactly 30 px, 
 
 ---
 
+## Queue positions must stay contiguous; bulk queue writes must be one transaction
+
+**Symptom.** "Play All" / "Shuffle Play" on a big library freezes the app for seconds (UI state, media keys and the 250 ms ticker all stall). Or, after a hand-written queue edit, Next/Previous play the wrong track.
+
+**Cause.** Two things, both measured at 50k tracks:
+- Row-by-row autocommit inserts cost one WAL commit each — `replace_queue` took **~7.2 s**, all while holding the DB `Mutex`. One transaction + one prepared statement: **~150 ms** (debug build).
+- `track_at_index` used to `ORDER BY position LIMIT 1 OFFSET n` with no index (~17 ms per Next). It is now an indexed point lookup `WHERE position = n` (~0.02 ms, `010_queue_position_index.sql`), which is only correct because **every queue writer keeps `position` contiguous 0..n-1** (`replace_queue` numbers from 0, `add_to_queue` appends at MAX+1, `remove_from_queue` deletes + shifts down in one transaction). A gap falls back to the old OFFSET query, so it stays correct, just slower.
+
+**Fix / rule.** Any new queue write (reorder, insert-at, bulk add) must keep positions contiguous and run inside `conn.unchecked_transaction()`. Shuffle state is kept in memory (`ShuffleState`); persist the cursor per move and the full order only when it changes — don't reintroduce a full JSON round-trip per Next. Re-measure with `cargo test -p halo --lib large_queue_timing -- --ignored --nocapture`.
+
+---
+
 ## Template
 
 ```

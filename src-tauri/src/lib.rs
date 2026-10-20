@@ -134,7 +134,7 @@ pub fn run() {
             let player = audio::PlayerHandle::new(saved_volume, std::sync::Arc::clone(&eq_state))
                 .expect("failed to init audio");
             app.manage(player);
-            app.manage(commands::player::ShuffleHistory::new());
+            app.manage(commands::player::ShuffleState::default());
             app.manage(commands::sleep_timer::SleepTimer::new());
 
             // Media controls (Windows SMTC, macOS MPRemoteCommandCenter, Linux MPRIS).

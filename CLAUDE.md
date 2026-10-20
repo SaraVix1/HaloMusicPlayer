@@ -69,7 +69,7 @@ halo/
 │           ├── media_input.rs   # MediaInput trait (Read + Seek + Send + Sync)
 │           ├── now_playing.rs   # NowPlayingController trait, NowPlayingMeta, PlaybackInfo, RemoteCommand
 │           ├── playback.rs      # is_played (local play-count threshold: 30s-or-50%) + should_scrobble (Last.fm threshold: 50%-or-4min, min 30s length) + unit tests
-│           └── queue.rs         # RepeatMode, ShuffleHistory, next_index, should_crossfade + unit tests
+│           └── queue.rs         # RepeatMode, next_index (sequential), ShuffleOrder (Fisher-Yates play order + cursor: advance/prev/jump_to/on_insert/on_remove), should_crossfade + unit tests
 ├── src-tauri/
 │   ├── src/
 │   │   ├── main.rs              # Entry point — calls halo_lib::run()
@@ -84,7 +84,7 @@ halo/
 │   │   │   └── media_controls.rs # souvlaki wrapper — implements NowPlayingController; spawns SMTC/MPRIS thread
 │   │   ├── db/
 │   │   │   ├── mod.rs           # DB connection (WAL mode, FK enforcement, migrations)
-│   │   │   └── migrations.rs    # Versioned runner (PRAGMA user_version): 001–009, each file wired explicitly
+│   │   │   └── migrations.rs    # Versioned runner (PRAGMA user_version): 001–010, each file wired explicitly
 │   │   ├── scanner/
 │   │   │   ├── mod.rs           # Scan orchestration + progress events
 │   │   │   ├── walker.rs        # Recursive folder walk, extension filter
@@ -96,7 +96,7 @@ halo/
 │   │       ├── library.rs       # get_tracks / get_albums / get_artists / get_album_artists / get_composers / get_genres / get_years / get_folder_tracks
 │   │       ├── lyrics.rs        # get_lyrics / save_lyrics IPC commands
 │   │       ├── metadata_editor.rs # get_track_full_metadata / save_track_metadata / extract_track_art / fetch_art_from_url / search_cover_art / process_art; emits library-changed after save
-│   │       ├── player.rs        # Playback IPC commands, handle_audio_events, FullPlayerState; queue/shuffle/repeat via halo-core; persist_playback_progress + resume_on_launch (restores prior play/pause state, paused if unknown)
+│   │       ├── player.rs        # Playback IPC commands, handle_audio_events, FullPlayerState; queue/shuffle/repeat via halo-core (ShuffleState = in-memory shuffle order; persists cursor `player.shuffle_pos` per move, full order `player.shuffle_order` only when the permutation changes; self-heals if stale; upcoming_index shared by next/track-end/crossfade); replace_queue is one transaction; track_at_index = indexed point lookup on contiguous positions; persist_playback_progress + resume_on_launch (restores prior play/pause state, paused if unknown)
 │   │       ├── playlists.rs     # Playlist CRUD + track management
 │   │       ├── scan.rs          # scan_library / clear_cache / clear_database / scan settings
 │   │       ├── search.rs        # Full-text search across tracks, albums, artists, playlists
@@ -111,7 +111,8 @@ halo/
 │   │   ├── 001_initial.sql      # Full schema (idempotent CREATE TABLE IF NOT EXISTS)
 │   │   ├── 002_stats.sql        # rating, play_count, skip_count, last_played_at columns
 │   │   ├── 003_lyrics.sql … 008_waveform_rms.sql  # lyrics, EQ presets, smart playlists, device EQ, waveform cache
-│   │   └── 009_lastfm_queue.sql # Last.fm offline scrobble queue
+│   │   ├── 009_lastfm_queue.sql # Last.fm offline scrobble queue
+│   │   └── 010_queue_position_index.sql # index on queue(position)
 │   ├── capabilities/
 │   │   └── default.json         # Tauri v2 permissions: core, opener, dialog
 │   └── Cargo.toml
