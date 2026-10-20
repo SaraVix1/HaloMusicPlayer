@@ -314,6 +314,20 @@ On Windows/macOS, `transparent(true)` is harmless: the window is exactly 30 px, 
 
 ---
 
+## "Open with Halo": three delivery paths, Explorer launches one process per file
+
+**Symptom.** Selecting several files in Windows Explorer → Open plays only the last one. Or double-clicking works on Windows/Linux but not macOS. Or a Linux `.deb` install doesn't offer Halo for audio files.
+
+**Cause.**
+- Windows Explorer starts **one process per selected file** (`halo.exe "file"`), each forwarded to the running instance by `tauri-plugin-single-instance` as a separate callback. Each replacing the queue means only the last survives.
+- macOS never passes files as argv — they arrive as `RunEvent::Opened { urls }` (both cold start and while running).
+- Linux association comes from `MimeType=` in the `.desktop` file. Our custom deb template ([src-tauri/linux/halo.desktop.hbs](../src-tauri/linux/halo.desktop.hbs)) originally had no `MimeType` line, so `bundle.fileAssociations` had no effect. `mimeType` values must match what shared-mime-info detects (e.g. `.ogg` sniffs as `audio/x-vorbis+ogg`, `.wav` is `audio/vnd.wave`), hence the `;`-separated lists in tauri.conf.json.
+- AppImage cannot register file associations at all (needs AppImageLauncher / appimaged).
+
+**Fix.** All paths funnel into `open_files::enqueue` ([src-tauri/src/open_files.rs](../src-tauri/src/open_files.rs)), which coalesces for 300 ms before opening the batch as one queue. Cold-start argv is handled in `setup()` *instead of* `resume_on_launch`; the macOS `Opened` event is handled in the `.run(|app, event| …)` closure in [src-tauri/src/lib.rs](../src-tauri/src/lib.rs). `PLAYABLE_EXTENSIONS` and `bundle.fileAssociations` must list the same formats (only ones rodio can decode — not opus/wma).
+
+---
+
 ## Never call `emit_state` (or anything that locks the DB) while holding the DB lock
 
 **Symptom.** The whole app freezes — UI stops updating, media keys and buttons do nothing — after a specific action. Reproduced case: shuffle on, Next past the end of the queue, then Previous.

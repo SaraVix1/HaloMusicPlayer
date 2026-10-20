@@ -1,9 +1,10 @@
 [Desktop Entry]
 Categories={{categories}}
 {{#if comment}}Comment={{comment}}{{/if}}
-Exec={{exec}} %U
+Exec={{exec}} %F
 Icon={{icon}}
 Name={{name}}
 StartupWMClass=com.saravix.halo
 Terminal=false
 Type=Application
+{{#if mime_type}}MimeType={{mime_type}}{{/if}}
