@@ -292,6 +292,16 @@ On Windows/macOS, `transparent(true)` is harmless: the window is exactly 30 px, 
 
 ---
 
+## Linux dev: album art blank on WebKitGTK 2.54 ("Unsafe attempt to load URL asset://…")
+
+**Symptom.** In `npm run tauri dev` on Linux, every thumbnail / cover shows the grey disc fallback. DevTools console: `Unsafe attempt to load URL asset://localhost/… from origin http://localhost:1420. Domains, protocols and ports must match.` Production builds (`npm run tauri build`) show art fine; so do older distros (e.g. Ubuntu with WebKitGTK ≤ 2.52).
+
+**Cause.** WebKitGTK regression starting at 2.54 (Debian 13 / MX Linux 25, Fedora 44, current Arch/NixOS): a page served over `http://` may no longer *display* `asset://` URLs. wry only registers `asset` as a secure scheme, which no longer suffices. In dev the page origin is the Vite server (`http://localhost:1420`); in production it is `tauri://localhost`, which is unaffected. Upstream: [tauri#16201](https://github.com/tauri-apps/tauri/issues/16201) (`status: upstream`). `WEBKIT_GST_ALLOWED_URI_PROTOCOLS` does not help.
+
+**Fix (dev-only workaround).** Display local files via `assetUrl()` in [src/lib/asset-url.ts](../src/lib/asset-url.ts), never `convertFileSrc` directly. In dev on Linux it returns Vite's same-origin `/@fs/<path>`; everywhere else it's `convertFileSrc`. [vite.config.ts](../vite.config.ts) adds Halo's art cache (`$XDG_CACHE_HOME/com.saravix.halo`) to `server.fs.allow` — anything else still gets 403. Images picked from outside the cache (metadata editor → local file) won't preview in Linux dev. Delete the workaround once WebKitGTK/Tauri fix it upstream.
+
+---
+
 ## Template
 
 ```
