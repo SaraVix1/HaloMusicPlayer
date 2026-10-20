@@ -614,11 +614,17 @@ pub fn previous_track(app: AppHandle) -> Result<(), String> {
                             load_index(&player_handle, &conn, prev)?;
                             commit_shuffle(&app, &conn, &order)?;
                         }
-                        None => {
-                            // Start of the shuffle pass — restart the current track.
+                        // Start of the shuffle pass — restart the current track.
+                        // Must not call emit_state here: it locks the DB again
+                        // and this thread still holds `conn` (self-deadlock that
+                        // froze the whole app).
+                        None if snap.track_id.is_some() => {
                             let _ = player_handle.seek(0);
-                            emit_state(&app);
-                            return Ok(());
+                        }
+                        // Stopped (e.g. Next ran off the end): seeking a stopped
+                        // player does nothing, so reload the current track.
+                        None => {
+                            load_index(&player_handle, &conn, current)?;
                         }
                     }
                 } else {

@@ -314,6 +314,16 @@ On Windows/macOS, `transparent(true)` is harmless: the window is exactly 30 px, 
 
 ---
 
+## Never call `emit_state` (or anything that locks the DB) while holding the DB lock
+
+**Symptom.** The whole app freezes — UI stops updating, media keys and buttons do nothing — after a specific action. Reproduced case: shuffle on, Next past the end of the queue, then Previous.
+
+**Cause.** The DB connection is a `std::sync::Mutex<Connection>`, which is **not re-entrant**: locking it again on the same thread blocks forever. `previous_track` called `emit_state(&app)` inside the block where it still held `conn`; `emit_state` → `build_full_state` locks the DB again → self-deadlock. The 250 ms ticker then blocks on the same lock, so everything stops. (The branch only ran at the start of a shuffle pass, which is why it went unnoticed.)
+
+**Fix / rule.** Inside a `let conn = db.lock()…` scope, only use `&conn`-taking helpers. Call `emit_state`, other `#[tauri::command]` fns, or anything that does `app.state::<Mutex<Connection>>().lock()` only after the guard is dropped (end the block or `drop(conn)`). Lock order for other state is DB first, then `ShuffleState` / `LastFmState`. MPRIS (`busctl --user call org.mpris.MediaPlayer2.halo /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player Next`) drives the same command paths as the buttons — handy for reproducing.
+
+---
+
 ## Template
 
 ```
