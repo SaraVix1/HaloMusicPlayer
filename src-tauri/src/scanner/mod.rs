@@ -78,18 +78,7 @@ pub fn run_scan(app: AppHandle, options: ScanOptions) -> Result<ScanSummary, Str
 
     let folders: Vec<(i64, PathBuf)> = {
         let conn = state.lock().map_err(|e| e.to_string())?;
-        let mut stmt = conn
-            .prepare("SELECT id, path FROM folders")
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map([], |row| {
-                let id: i64 = row.get(0)?;
-                let path: String = row.get(1)?;
-                Ok((id, PathBuf::from(path)))
-            })
-            .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?
+        managed_folders(&conn)?
     };
 
     let mut files: Vec<(i64, PathBuf)> = Vec::new();
@@ -118,7 +107,7 @@ pub fn run_scan(app: AppHandle, options: ScanOptions) -> Result<ScanSummary, Str
 
     for (idx, (folder_id, path)) in files.iter().enumerate() {
         let display = path.display().to_string();
-        match process_file(&app, &state, *folder_id, path, &options, &cache_dir) {
+        match process_file(&app, &state, Some(*folder_id), path, &options, &cache_dir) {
             Ok(Outcome::Inserted) => counts.inserted += 1,
             Ok(Outcome::Updated) => counts.updated += 1,
             Ok(Outcome::Skipped) => counts.skipped += 1,
@@ -167,6 +156,86 @@ pub fn run_scan(app: AppHandle, options: ScanOptions) -> Result<ScanSummary, Str
     Ok(summary)
 }
 
+/// The managed library folders as `(id, path)`.
+fn managed_folders(conn: &Connection) -> Result<Vec<(i64, PathBuf)>, String> {
+    let mut stmt = conn
+        .prepare("SELECT id, path FROM folders")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let path: String = row.get(1)?;
+            Ok((id, PathBuf::from(path)))
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())
+}
+
+fn track_id_for_path(state: &Mutex<Connection>, path: &Path) -> Option<i64> {
+    let conn = state.lock().ok()?;
+    conn.query_row(
+        "SELECT id FROM tracks WHERE file_path = ?1",
+        [path.to_string_lossy().as_ref()],
+        |row| row.get(0),
+    )
+    .ok()
+}
+
+/// Resolve individual audio files to library track ids, importing any that
+/// aren't in the library yet — used when files are opened from the OS file
+/// manager. New files go through the same `process_file` pipeline as a scan
+/// (tags, artist/genre junctions, album art, lyrics) and are attached to the
+/// deepest managed folder that contains them, or to no folder. Returns ids in
+/// input order; unreadable files are skipped.
+pub fn import_paths(app: &AppHandle, paths: &[PathBuf]) -> Vec<i64> {
+    let state = app.state::<Mutex<Connection>>();
+    let Ok(cache_dir) = app.path().app_cache_dir().map(|d| d.join("album-art")) else {
+        return Vec::new();
+    };
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let (options, folders) = {
+        let Ok(conn) = state.lock() else { return Vec::new() };
+        let (delimiters, extensions) =
+            read_scan_options(&conn).unwrap_or_else(|_| (",;|:&".into(), Vec::new()));
+        let options = ScanOptions { override_metadata: false, delimiters, extensions };
+        (options, managed_folders(&conn).unwrap_or_default())
+    };
+
+    let mut ids = Vec::new();
+    for path in paths {
+        // The library may store the path as given or symlink-resolved,
+        // depending on how its folder was added — accept either.
+        let canonical = path.canonicalize().ok();
+        let candidates: Vec<&Path> = std::iter::once(path.as_path())
+            .chain(canonical.as_deref())
+            .collect();
+        if let Some(id) = candidates.iter().find_map(|p| track_id_for_path(&state, p)) {
+            ids.push(id);
+            continue;
+        }
+        let folder_id = folders
+            .iter()
+            .filter(|(_, root)| {
+                let root_canonical = root.canonicalize().ok();
+                candidates.iter().any(|p| {
+                    p.starts_with(root) || root_canonical.as_ref().is_some_and(|r| p.starts_with(r))
+                })
+            })
+            .max_by_key(|(_, root)| root.components().count())
+            .map(|(id, _)| *id);
+        match process_file(app, &state, folder_id, path, &options, &cache_dir) {
+            Ok(_) => {
+                if let Some(id) = track_id_for_path(&state, path) {
+                    ids.push(id);
+                }
+            }
+            Err(e) => eprintln!("open file: import failed for {}: {e}", path.display()),
+        }
+    }
+    ids
+}
+
 enum Outcome {
     Inserted,
     Updated,
@@ -176,7 +245,7 @@ enum Outcome {
 fn process_file(
     _app: &AppHandle,
     state: &Mutex<Connection>,
-    folder_id: i64,
+    folder_id: Option<i64>,
     path: &Path,
     options: &ScanOptions,
     cache_dir: &Path,
@@ -246,7 +315,7 @@ fn process_file(
 fn upsert_track(
     conn: &Connection,
     path: &str,
-    folder_id: i64,
+    folder_id: Option<i64>,
     meta: &metadata::TrackMetadata,
     album_art_path: Option<&str>,
     file_size: Option<i64>,

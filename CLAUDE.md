@@ -79,6 +79,7 @@ halo/
 │   ├── src/
 │   │   ├── main.rs              # Entry point — calls halo_lib::run()
 │   │   ├── lib.rs               # Tauri builder: plugins, state, command registration, 250ms ticker (sleep timer, audio events, SMTC sync, output-device follow, persist playback progress); resume_on_launch + watcher init/reconfigure at setup; sync_media_controls; handle_remote_command; close-behavior (minimize-to-tray vs quit)
+│   │   ├── open_files.rs        # "Open with Halo" / double-click: paths_from_args (argv → playable paths, file:// URIs, relative paths), 300ms-coalesced enqueue → scanner::import_paths → set_queue_and_play; fed by setup() argv (cold start, replaces resume_on_launch), single-instance argv (warm), RunEvent::Opened (macOS). PLAYABLE_EXTENSIONS must match bundle.fileAssociations
 │   │   ├── watcher.rs           # FolderWatcher (notify crate): recursively watches managed folders, 2s-debounced full rescan on Create/Remove/Modify; reconfigure() on startup, toggle, and folder add/remove; set_watch_folders command
 │   │   ├── tray.rs              # System tray icon, menu, and show/hide logic
 │   │   ├── audio/
@@ -91,7 +92,7 @@ halo/
 │   │   │   ├── mod.rs           # DB connection (WAL mode, FK enforcement, migrations)
 │   │   │   └── migrations.rs    # Versioned runner (PRAGMA user_version): 001–010, each file wired explicitly
 │   │   ├── scanner/
-│   │   │   ├── mod.rs           # Scan orchestration + progress events
+│   │   │   ├── mod.rs           # Scan orchestration + progress events; import_paths (single-file import for open_files, folder_id = deepest managed folder or NULL)
 │   │   │   ├── walker.rs        # Recursive folder walk, extension filter
 │   │   │   ├── metadata.rs      # lofty tag extraction, multi-value delimiter splitting
 │   │   │   └── art.rs           # Album art extraction and cache

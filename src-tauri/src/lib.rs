@@ -1,6 +1,7 @@
 mod audio;
 mod commands;
 mod db;
+mod open_files;
 mod scanner;
 mod tray;
 mod watcher;
@@ -87,7 +88,14 @@ fn set_app_user_model_id() {}
 pub fn run() {
     set_app_user_model_id();
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            // A second launch with audio files ("Open with Halo" while Halo is
+            // running) plays them here; open_files decides which window to show.
+            let files = open_files::paths_from_args(&argv, std::path::Path::new(&cwd));
+            if !files.is_empty() {
+                open_files::enqueue(app, files);
+                return;
+            }
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.set_skip_taskbar(false);
                 let _ = main.show();
@@ -136,6 +144,7 @@ pub fn run() {
             app.manage(player);
             app.manage(commands::player::ShuffleState::default());
             app.manage(commands::sleep_timer::SleepTimer::new());
+            app.manage(open_files::OpenFilesState::default());
 
             // Media controls (Windows SMTC, macOS MPRemoteCommandCenter, Linux MPRIS).
             let (remote_tx, remote_rx) = mpsc::channel::<RemoteCommand>();
@@ -202,8 +211,19 @@ pub fn run() {
             app.manage(watcher::init(app.handle()));
             watcher::reconfigure(app.handle());
 
-            // Resume the previous session's track/position if the user enabled it.
-            commands::player::resume_on_launch(app.handle());
+            // Launched with audio files (double-click / "Open with Halo"): play
+            // those instead of resuming the previous session.
+            let launch_files = {
+                let argv: Vec<String> = std::env::args().collect();
+                let cwd = std::env::current_dir().unwrap_or_default();
+                open_files::paths_from_args(&argv, &cwd)
+            };
+            if launch_files.is_empty() {
+                // Resume the previous session's track/position if the user enabled it.
+                commands::player::resume_on_launch(app.handle());
+            } else {
+                open_files::enqueue(app.handle(), launch_files);
+            }
 
             // Show main window with the correct background color for the saved theme,
             // avoiding the white flash that occurs when the webview default precedes CSS.
@@ -406,8 +426,17 @@ pub fn run() {
             commands::eq::delete_device_eq_profile,
             commands::eq::list_device_eq_profiles,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            // macOS delivers "Open with Halo" files as Opened events (cold
+            // start and while running), never as argv.
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            if let tauri::RunEvent::Opened { urls } = &_event {
+                let files = urls.iter().filter_map(|u| u.to_file_path().ok()).collect();
+                open_files::enqueue(_app, files);
+            }
+        });
 }
 
 fn handle_remote_command(app: &tauri::AppHandle, cmd: RemoteCommand) {
