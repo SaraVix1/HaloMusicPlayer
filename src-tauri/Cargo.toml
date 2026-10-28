@@ -1,6 +1,6 @@
 [package]
 name = "halo"
-version = "0.1.0"
+version = "0.1.0-beta"
 description = "A desktop music player"
 authors = ["Saravix"]
 edition = "2021"
