@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { assetUrl } from "@/lib/asset-url";
 import { Disc, FolderOpen, ImageOff, Link2, Loader2, Search, X } from "lucide-react";
 import {
   Dialog,
@@ -219,14 +219,14 @@ export default function MetadataEditorDialog({ trackId, onClose, onSaved }: Prop
   // ── Art helpers ───────────────────────────────────────────────────────────
 
   const goToCrop = (localPath: string) => {
-    setCropSrc(convertFileSrc(localPath));
+    setCropSrc(assetUrl(localPath));
     setCropRawPath(localPath);
     setArtMode("crop");
   };
 
   const setArt = (path: string) =>
     setDraft((prev) =>
-      prev ? { ...prev, new_art_path: path, art_preview: convertFileSrc(path) } : prev,
+      prev ? { ...prev, new_art_path: path, art_preview: assetUrl(path) } : prev,
     );
 
   const pickLocal = async () => {
@@ -351,7 +351,7 @@ export default function MetadataEditorDialog({ trackId, onClose, onSaved }: Prop
 
   const currentArtSrc =
     draft?.art_preview ??
-    (meta?.album_art_path ? convertFileSrc(meta.album_art_path) : null);
+    (meta?.album_art_path ? assetUrl(meta.album_art_path) : null);
 
   const isCropMode = artMode === "crop";
 

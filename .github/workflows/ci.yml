@@ -1,0 +1,98 @@
+name: CI
+
+# Checks every branch push (feature branches and main) and every PR into main.
+# Tag pushes are handled by release.yml, so they are excluded here.
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the run in progress.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Frontend (type-check + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # `npm run build` = `tsc && vite build`
+      - name: Type-check and build
+        run: npm run build
+
+  rust-linux:
+    name: Rust (Linux — check, clippy, test)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libdbus-1-dev \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libxdo-dev \
+            libasound2-dev
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+
+      - name: cargo check
+        run: cargo check --workspace --all-targets --locked
+
+      # Report-only for now: the codebase has pre-existing clippy warnings.
+      # Switch to `-- -D warnings` once they are cleaned up.
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked
+
+      - name: cargo test
+        run: cargo test --workspace --locked
+
+  rust-windows:
+    name: Rust (Windows — check)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+
+      # Compiles the cfg(windows) paths (SMTC/AUMID, DWM corners, …) that the
+      # Linux job never sees.
+      - name: cargo check
+        run: cargo check --workspace --all-targets --locked

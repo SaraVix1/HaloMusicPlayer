@@ -34,6 +34,7 @@ import {
   lastfmStartAuth,
   lastfmCompleteAuth,
   lastfmLogout,
+  lastfmSetStaySignedIn,
   getPref,
   setPref,
   setWatchFolders,
@@ -902,6 +903,16 @@ function LastFmPanel() {
     }
   };
 
+  const handleStaySignedIn = async (enabled: boolean) => {
+    setError(null);
+    try {
+      await lastfmSetStaySignedIn(enabled);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const handleDisconnect = async () => {
     setBusy(true);
     setError(null);
@@ -925,7 +936,7 @@ function LastFmPanel() {
       <p className="text-xs text-muted-foreground mb-4 max-w-md">
         Optional. Scrobbles the tracks you play to your Last.fm profile. Enter the
         app’s API key once, then each person signs in to their own account —
-        sign-in clears when the app closes.
+        sign-in clears when the app closes unless “Stay signed in” is on.
       </p>
 
       {showCredsForm ? (
@@ -1020,6 +1031,20 @@ function LastFmPanel() {
               Change API key
             </Button>
           </div>
+        </div>
+      )}
+
+      {configured && !editingCreds && (
+        <div className="max-w-md mt-4">
+          <SettingRow
+            label="Stay signed in on this computer"
+            description="Off by default so others using this computer sign in to their own account."
+          >
+            <Toggle
+              checked={status?.stay_signed_in ?? false}
+              onChange={handleStaySignedIn}
+            />
+          </SettingRow>
         </div>
       )}
 

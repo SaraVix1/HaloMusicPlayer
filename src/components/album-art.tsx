@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { assetUrl } from "@/lib/asset-url";
 import { Disc } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +39,7 @@ export default function AlbumArt({
 
   return (
     <img
-      src={convertFileSrc(path)}
+      src={assetUrl(path)}
       width={size}
       height={size}
       loading="lazy"

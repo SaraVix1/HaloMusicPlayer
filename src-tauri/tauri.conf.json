@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Halo Music Player",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "identifier": "com.saravix.halo",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -34,12 +34,71 @@
     "active": true,
     "targets": "all",
     "publisher": "Saravix",
+    "category": "Music",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["mp3"],
+        "mimeType": "audio/mpeg",
+        "name": "MP3 Audio",
+        "description": "MP3 Audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["flac"],
+        "mimeType": "audio/flac;audio/x-flac",
+        "name": "FLAC Audio",
+        "description": "FLAC Audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["m4a"],
+        "mimeType": "audio/mp4;audio/x-m4a",
+        "name": "MPEG-4 Audio",
+        "description": "MPEG-4 Audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["aac"],
+        "mimeType": "audio/aac",
+        "name": "AAC Audio",
+        "description": "AAC Audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["ogg", "oga"],
+        "mimeType": "audio/ogg;audio/x-vorbis+ogg;audio/x-flac+ogg",
+        "name": "Ogg Audio",
+        "description": "Ogg Audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["wav"],
+        "mimeType": "audio/vnd.wave;audio/x-wav;audio/wav",
+        "name": "WAV Audio",
+        "description": "WAV Audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["aiff", "aif"],
+        "mimeType": "audio/x-aiff;audio/aiff",
+        "name": "AIFF Audio",
+        "description": "AIFF Audio",
+        "role": "Viewer",
+        "rank": "Alternate"
+      }
     ],
     "linux": {
       "deb": {
