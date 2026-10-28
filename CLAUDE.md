@@ -57,7 +57,7 @@ cargo clippy
 node scripts/bump-version.mjs <version>
 ```
 
-**Versioning:** Halo is in beta. `.github/workflows/bump-version.yml` bumps the patch version on every push to `main` (skipped when the commit title contains `[skip bump]`); `release.yml` publishes every `v*` tag as a "(Beta)" pre-release.
+**Versioning:** Halo is in beta. `.github/workflows/bump-version.yml` bumps the patch version on every push to `main` (skipped when the commit title contains `[skip bump]`); `release.yml` publishes a "(Beta)" pre-release for a pushed `v*` tag, or — when run manually from `main` — for `v<current version>`, creating that tag.
 
 ## Architecture
 
