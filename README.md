@@ -1,5 +1,7 @@
 # Halo Music Player
 
+> **Beta:** Halo is currently in beta. Releases are published as GitHub pre-releases — expect rough edges, and please report any bugs you hit.
+
 Halo is a fast, native desktop music player for your local library. Point it at your music folders and get a clean, modern player with gapless-feeling playback, a full equalizer, lyrics, smart playlists, and Last.fm scrobbling — all running offline against your own files.
 
 ## Features
@@ -52,7 +54,7 @@ Halo currently runs on **Windows, macOS, and Linux**. Mobile (Android/iOS) suppo
 
 ## Installing
 
-Pre-built installers are not yet published. For now, build Halo from source — see [Building from source](#building-from-source) below.
+Beta installers for Windows (`.msi`), macOS (universal `.dmg`), and Linux (`.AppImage`, `.deb`, `.rpm`) are published on the [Releases](https://github.com/SaraVix1/HaloMusicPlayer/releases) page, marked as pre-releases. You can also build Halo from source — see [Building from source](#building-from-source) below.
 
 ## Building from source
 
