@@ -1,6 +1,6 @@
 # Halo Music Player
 
-> **Beta:** Halo is currently in beta. The current release is `0.1.0-beta`, published as a GitHub pre-release — expect rough edges, and please report any bugs you hit.
+> **Beta:** Halo is currently in beta. Releases are published as GitHub pre-releases — expect rough edges, and please report any bugs you hit.
 
 Halo is a fast, native desktop music player for your local library. Point it at your music folders and get a clean, modern player with gapless-feeling playback, a full equalizer, lyrics, smart playlists, and Last.fm scrobbling — all running offline against your own files.
 
@@ -55,6 +55,10 @@ Halo currently runs on **Windows, macOS, and Linux**. Mobile (Android/iOS) suppo
 ## Installing
 
 Beta installers for Windows (`.msi`), macOS (universal `.dmg`), and Linux (`.AppImage`, `.deb`, `.rpm`) are published on the [Releases](https://github.com/SaraVix1/HaloMusicPlayer/releases) page, marked as pre-releases. You can also build Halo from source — see [Building from source](#building-from-source) below.
+
+### Versioning
+
+Halo uses `major.minor.patch` versions starting at `0.1.0`. Every push to `main` bumps the patch number automatically (`0.1.0` → `0.1.1` → `0.1.2` …). To set a version by hand, run `node scripts/bump-version.mjs <version>` and include `[skip bump]` in the commit message.
 
 ## Building from source
 

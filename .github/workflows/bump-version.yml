@@ -1,0 +1,42 @@
+name: Bump version
+
+# Every push to main bumps the patch version (0.1.0 -> 0.1.1 -> 0.1.2 ...).
+# The bump commit is pushed with GITHUB_TOKEN, which does not trigger
+# workflows, so it does not bump itself again. Put "[skip bump]" in a commit
+# message to push without a bump (e.g. when setting a version by hand with
+# `node scripts/bump-version.mjs <version>`).
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-version
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: ${{ !contains(github.event.head_commit.message, '[skip bump]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Bump patch version
+        id: bump
+        run: echo "version=$(node scripts/bump-version.mjs)" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Bump version to ${{ steps.bump.outputs.version }}"
+          git push origin HEAD:main

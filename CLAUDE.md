@@ -52,7 +52,12 @@ cargo test <test_name>
 
 # Lint Rust
 cargo clippy
+
+# Set the app version by hand (package.json, package-lock, Cargo.toml, Cargo.lock, tauri.conf.json)
+node scripts/bump-version.mjs <version>
 ```
+
+**Versioning:** Halo is in beta. `.github/workflows/bump-version.yml` bumps the patch version on every push to `main` (skipped when the commit message contains `[skip bump]`); `release.yml` publishes every `v*` tag as a "(Beta)" pre-release.
 
 ## Architecture
 
