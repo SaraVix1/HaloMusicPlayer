@@ -3,7 +3,7 @@ name: Bump version
 # Every push to main bumps the patch version (0.1.0 -> 0.1.1 -> 0.1.2 ...).
 # The bump commit is pushed with GITHUB_TOKEN, which does not trigger
 # workflows, so it does not bump itself again. Put "[skip bump]" in a commit
-# message to push without a bump (e.g. when setting a version by hand with
+# title (first line) to push without a bump (e.g. when setting a version by hand with
 # `node scripts/bump-version.mjs <version>`).
 
 on:
@@ -19,22 +19,37 @@ concurrency:
 
 jobs:
   bump:
-    if: ${{ !contains(github.event.head_commit.message, '[skip bump]') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      # Only the title counts: a squash merge's body lists every squashed
+      # commit's message, which can mention "[skip bump]" in passing.
+      - name: Check for [skip bump] in the commit title
+        id: skip
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          title="${MESSAGE%%$'\n'*}"
+          if [[ "$title" == *"[skip bump]"* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.skip.outputs.skip != 'true'
+        uses: actions/checkout@v5
         with:
           ref: main
 
-      - uses: actions/setup-node@v5
+      - if: steps.skip.outputs.skip != 'true'
+        uses: actions/setup-node@v5
         with:
           node-version: 22
 
       - name: Bump patch version
+        if: steps.skip.outputs.skip != 'true'
         id: bump
         run: echo "version=$(node scripts/bump-version.mjs)" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push
+        if: steps.skip.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

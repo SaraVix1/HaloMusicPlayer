@@ -58,7 +58,7 @@ Beta installers for Windows (`.msi`), macOS (universal `.dmg`), and Linux (`.App
 
 ### Versioning
 
-Halo uses `major.minor.patch` versions starting at `0.1.0`. Every push to `main` bumps the patch number automatically (`0.1.0` → `0.1.1` → `0.1.2` …). To set a version by hand, run `node scripts/bump-version.mjs <version>` and include `[skip bump]` in the commit message.
+Halo uses `major.minor.patch` versions starting at `0.1.0`. Every push to `main` bumps the patch number automatically (`0.1.0` → `0.1.1` → `0.1.2` …). To set a version by hand, run `node scripts/bump-version.mjs <version>` and include `[skip bump]` in the commit title.
 
 ## Building from source
 
