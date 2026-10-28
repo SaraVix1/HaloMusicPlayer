@@ -15,6 +15,14 @@ jobs:
     outputs:
       release_id: ${{ steps.create-release.outputs.result }}
     steps:
+      # A manual run started from a branch would create a release named
+      # "refs/heads/<branch>" that can never be published. Run it from a
+      # v* tag instead (pick the tag in the "Use workflow from" menu).
+      - name: Require a v* tag
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          echo "::error::Release must run from a v* tag, not ${{ github.ref }}"
+          exit 1
       - uses: actions/checkout@v4
       - name: Create draft release
         id: create-release
