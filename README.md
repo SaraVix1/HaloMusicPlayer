@@ -1,6 +1,6 @@
 # Halo Music Player
 
-> **Beta:** Halo is currently in beta. The current release is `0.1.0-beta`, published as a GitHub pre-release — expect rough edges, and please report any bugs you hit.
+> **Beta:** Halo is currently in beta. Releases are published as GitHub pre-releases — expect rough edges, and please report any bugs you hit.
 
 Halo is a fast, native desktop music player for your local library. Point it at your music folders and get a clean, modern player with gapless-feeling playback, a full equalizer, lyrics, smart playlists, and Last.fm scrobbling — all running offline against your own files.
 
