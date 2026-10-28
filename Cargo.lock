@@ -1700,6 +1700,7 @@ name = "halo"
 version = "0.1.0"
 dependencies = [
  "cpal",
+ "fastrand",
  "halo-core",
  "hex",
  "image",
@@ -1729,7 +1730,9 @@ dependencies = [
 name = "halo-core"
 version = "0.1.0"
 dependencies = [
+ "fastrand",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
 ]
 

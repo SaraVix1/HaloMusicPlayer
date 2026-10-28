@@ -175,17 +175,18 @@ let hwnd = windows::Win32::Foundation::HWND(raw.0 as *mut core::ffi::c_void);
 
 ---
 
-## Last.fm app key/secret are user-entered in Settings and persisted; session is not
+## Last.fm app key/secret are persisted; the session only if "Stay signed in" is on
 
 **Symptom.** Scrobbling does nothing and the Settings panel shows the API-key form instead of a Connect button — or, conversely, you expect the saved login to survive a restart and it doesn't.
 
 **Cause.** Two different lifetimes, deliberately split in `lastfm.rs`:
 - The **app** credentials (`api_key` / `api_secret`) are entered by the user in Settings → Advanced and **persisted** in `app_state` (`lastfm.api_key` / `lastfm.api_secret`). `LastFmInner::creds()` reads them; until both are set, `lastfm_get_status().configured` is false and the panel shows the credentials form. These survive restarts (entered once by whoever sets up the machine).
-- The per-user **session** (`session_key` / `username`) is **memory-only** — `load()` purges `lastfm.session_key` / `lastfm.username` on startup and never writes them, so each person on a shared machine signs into their own account and the login clears on exit.
+- The per-user **session** (`session_key` / `username`) is **memory-only by default** — `load()` purges `lastfm.session_key` / `lastfm.username` on startup, so each person on a shared machine signs into their own account and the login clears on exit. If the user turns on **"Stay signed in on this computer"** (`lastfm.stay_signed_in = "true"`, `lastfm_set_stay_signed_in`), the session is written on connect (or immediately when toggled on while connected) and restored by `load()`. Turning it off, Disconnect, and changing the API key all delete the stored session.
+- A restored session can go stale (user revoked Halo at last.fm/settings/applications). Last.fm then answers **error 9 (Invalid session key)**; `invalidate_session` clears it in memory + DB so the panel shows disconnected. It only clears if the session is still the one that failed, so a racing re-auth isn't wiped. Queued scrobbles are kept for the next sign-in.
 
-(History: the key was briefly a compiled-in constant, then reverted on user request — they wanted it entered in the Settings screen, not baked into source.)
+(History: the key was briefly a compiled-in constant, then reverted on user request — they wanted it entered in the Settings screen, not baked into source. The session was memory-only with no opt-in until 2026-10, when "Stay signed in" was added.)
 
-**Fix.** Nothing to fix — by design. To enable Last.fm: register an app at last.fm/api/account/create and paste the key + shared secret into the Settings → Advanced form (not into source). `lastfm_set_credentials` persists them and clears any stale session. Don't "simplify" by persisting the session key — that would leak one user's scrobbling onto the next user of a shared machine.
+**Fix.** Nothing to fix — by design. To enable Last.fm: register an app at last.fm/api/account/create and paste the key + shared secret into the Settings → Advanced form (not into source). `lastfm_set_credentials` persists them and clears any stale session. Keep the session opt-in and default-off — persisting it unconditionally would leak one user's scrobbling onto the next user of a shared machine.
 
 ---
 
@@ -278,6 +279,48 @@ On Windows/macOS, `transparent(true)` is harmless: the window is exactly 30 px, 
 ### Also fixed: default position on Linux
 
 `default_mini_position` returned `None` on non-Windows, landing the mini player at `center()`. It now computes bottom-right using the primary monitor's physical size with a 56 logical-px bottom margin to clear typical taskbars/docks.
+
+---
+
+## Migration files must be wired into `migrations.rs` by hand
+
+**Symptom.** A table defined in `src-tauri/migrations/*.sql` doesn't exist at runtime. Code that writes to it with `let _ = conn.execute(...)` fails silently (this is how the Last.fm offline scrobble queue lost every queued scrobble).
+
+**Cause.** The runner in [src-tauri/src/db/migrations.rs](../src-tauri/src/db/migrations.rs) doesn't scan the directory — each file is `include_str!`'d explicitly behind a `PRAGMA user_version` check. Two files once shared the `007_` prefix (`007_waveform.sql`, `007_lastfm.sql`); only one was wired up, so `lastfm_scrobble_queue` was never created.
+
+**Fix.** Every new `.sql` file gets a unique next number **and** a matching `if version < N` block. The scrobble queue now lives in `009_lastfm_queue.sql` (idempotent `CREATE TABLE IF NOT EXISTS`, safe on any DB).
+
+---
+
+## Linux dev: album art blank on WebKitGTK 2.54 ("Unsafe attempt to load URL asset://…")
+
+**Symptom.** In `npm run tauri dev` on Linux, every thumbnail / cover shows the grey disc fallback. DevTools console: `Unsafe attempt to load URL asset://localhost/… from origin http://localhost:1420. Domains, protocols and ports must match.` Production builds (`npm run tauri build`) show art fine; so do older distros (e.g. Ubuntu with WebKitGTK ≤ 2.52).
+
+**Cause.** WebKitGTK regression starting at 2.54 (Debian 13 / MX Linux 25, Fedora 44, current Arch/NixOS): a page served over `http://` may no longer *display* `asset://` URLs. wry only registers `asset` as a secure scheme, which no longer suffices. In dev the page origin is the Vite server (`http://localhost:1420`); in production it is `tauri://localhost`, which is unaffected. Upstream: [tauri#16201](https://github.com/tauri-apps/tauri/issues/16201) (`status: upstream`). `WEBKIT_GST_ALLOWED_URI_PROTOCOLS` does not help.
+
+**Fix (dev-only workaround).** Display local files via `assetUrl()` in [src/lib/asset-url.ts](../src/lib/asset-url.ts), never `convertFileSrc` directly. In dev on Linux it returns Vite's same-origin `/@fs/<path>`; everywhere else it's `convertFileSrc`. [vite.config.ts](../vite.config.ts) adds Halo's art cache (`$XDG_CACHE_HOME/com.saravix.halo`) to `server.fs.allow` — anything else still gets 403. Images picked from outside the cache (metadata editor → local file) won't preview in Linux dev. Delete the workaround once WebKitGTK/Tauri fix it upstream.
+
+---
+
+## Queue positions must stay contiguous; bulk queue writes must be one transaction
+
+**Symptom.** "Play All" / "Shuffle Play" on a big library freezes the app for seconds (UI state, media keys and the 250 ms ticker all stall). Or, after a hand-written queue edit, Next/Previous play the wrong track.
+
+**Cause.** Two things, both measured at 50k tracks:
+- Row-by-row autocommit inserts cost one WAL commit each — `replace_queue` took **~7.2 s**, all while holding the DB `Mutex`. One transaction + one prepared statement: **~150 ms** (debug build).
+- `track_at_index` used to `ORDER BY position LIMIT 1 OFFSET n` with no index (~17 ms per Next). It is now an indexed point lookup `WHERE position = n` (~0.02 ms, `010_queue_position_index.sql`), which is only correct because **every queue writer keeps `position` contiguous 0..n-1** (`replace_queue` numbers from 0, `add_to_queue` appends at MAX+1, `remove_from_queue` deletes + shifts down in one transaction). A gap falls back to the old OFFSET query, so it stays correct, just slower.
+
+**Fix / rule.** Any new queue write (reorder, insert-at, bulk add) must keep positions contiguous and run inside `conn.unchecked_transaction()`. Shuffle state is kept in memory (`ShuffleState`); persist the cursor per move and the full order only when it changes — don't reintroduce a full JSON round-trip per Next. Re-measure with `cargo test -p halo --lib large_queue_timing -- --ignored --nocapture`.
+
+---
+
+## Never call `emit_state` (or anything that locks the DB) while holding the DB lock
+
+**Symptom.** The whole app freezes — UI stops updating, media keys and buttons do nothing — after a specific action. Reproduced case: shuffle on, Next past the end of the queue, then Previous.
+
+**Cause.** The DB connection is a `std::sync::Mutex<Connection>`, which is **not re-entrant**: locking it again on the same thread blocks forever. `previous_track` called `emit_state(&app)` inside the block where it still held `conn`; `emit_state` → `build_full_state` locks the DB again → self-deadlock. The 250 ms ticker then blocks on the same lock, so everything stops. (The branch only ran at the start of a shuffle pass, which is why it went unnoticed.)
+
+**Fix / rule.** Inside a `let conn = db.lock()…` scope, only use `&conn`-taking helpers. Call `emit_state`, other `#[tauri::command]` fns, or anything that does `app.state::<Mutex<Connection>>().lock()` only after the guard is dropped (end the block or `drop(conn)`). Lock order for other state is DB first, then `ShuffleState` / `LastFmState`. MPRIS (`busctl --user call org.mpris.MediaPlayer2.halo /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player Next`) drives the same command paths as the buttons — handy for reproducing.
 
 ---
 

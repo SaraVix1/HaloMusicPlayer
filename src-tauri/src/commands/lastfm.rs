@@ -4,9 +4,11 @@
 // to Last.fm. They are entered once by whoever sets up the app, in
 // Settings → Advanced → Last.fm (register an app at
 // https://www.last.fm/api/account/create to obtain the pair). The key/secret are
-// **persisted** in app_state so they survive restarts, but each person's account
-// **session is memory-only** — never persisted, cleared on exit — so every user
-// on a shared machine authorises their own Last.fm account.
+// **persisted** in app_state so they survive restarts. The per-user account
+// session is **memory-only by default** — cleared on exit — so every user on a
+// shared machine authorises their own Last.fm account. Users can opt in to
+// "Stay signed in on this computer" (`lastfm.stay_signed_in`), which persists
+// the session key + username in app_state and restores them at startup.
 //
 // Note: a Last.fm API key/secret identifies the app, not a person, which is why
 // it is safe for everyone on the machine to share the one key.
@@ -19,6 +21,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
 
 const API_BASE: &str = "https://ws.audioscrobbler.com/2.0/";
+
+const KEY_STAY_SIGNED_IN: &str = "lastfm.stay_signed_in";
+const KEY_SESSION_KEY: &str = "lastfm.session_key";
+const KEY_USERNAME: &str = "lastfm.username";
 
 // ── Managed state ─────────────────────────────────────────────────────────────
 
@@ -52,21 +58,27 @@ impl LastFmInner {
 }
 
 impl LastFmState {
-    /// Initialise state at startup. The app key/secret are **persisted** (loaded
-    /// here from app_state), but the per-user account **session is memory-only**
-    /// — never persisted — so each person who uses this shared machine
-    /// authorises their own Last.fm account and the login clears on exit rather
-    /// than carrying over to the next user.
+    /// Initialise state at startup. The app key/secret are always restored.
+    /// The per-user session is restored only when the user opted in to
+    /// "Stay signed in"; otherwise any stored session rows are purged so the
+    /// login doesn't carry over to the next person on a shared machine.
     pub fn load(conn: &Connection) -> Self {
-        // The session is memory-only: purge any session rows written by older
-        // builds. The app key/secret, by contrast, are persisted and restored.
-        kv_del(conn, "lastfm.session_key");
-        kv_del(conn, "lastfm.username");
+        let (session_key, username) = if stay_signed_in(conn) {
+            (kv_get(conn, KEY_SESSION_KEY), kv_get(conn, KEY_USERNAME))
+        } else {
+            clear_stored_session(conn);
+            (None, None)
+        };
+        // A key without a username (or vice versa) is unusable — treat as signed out.
+        let (session_key, username) = match (session_key, username) {
+            (Some(k), Some(u)) => (Some(k), Some(u)),
+            _ => (None, None),
+        };
         Self(Mutex::new(LastFmInner {
             api_key: kv_get(conn, "lastfm.api_key"),
             api_secret: kv_get(conn, "lastfm.api_secret"),
-            session_key: None,
-            username: None,
+            session_key,
+            username,
             pending_token: None,
             track_start: None,
             now_playing_id: None,
@@ -94,6 +106,20 @@ fn kv_set(conn: &Connection, key: &str, value: &str) {
 
 fn kv_del(conn: &Connection, key: &str) {
     let _ = conn.execute("DELETE FROM app_state WHERE key = ?1", [key]);
+}
+
+fn stay_signed_in(conn: &Connection) -> bool {
+    kv_get(conn, KEY_STAY_SIGNED_IN).as_deref() == Some("true")
+}
+
+fn store_session(conn: &Connection, session_key: &str, username: &str) {
+    kv_set(conn, KEY_SESSION_KEY, session_key);
+    kv_set(conn, KEY_USERNAME, username);
+}
+
+fn clear_stored_session(conn: &Connection) {
+    kv_del(conn, KEY_SESSION_KEY);
+    kv_del(conn, KEY_USERNAME);
 }
 
 fn now_unix() -> i64 {
@@ -161,6 +187,32 @@ fn check_error(json: &serde_json::Value) -> Result<(), String> {
         return Err(format!("Last.fm error {}: {}", code, msg));
     }
     Ok(())
+}
+
+/// Last.fm error 9 = "Invalid session key - Please re-authenticate" (e.g. the
+/// user revoked Halo's access on last.fm).
+fn is_invalid_session(err: &str) -> bool {
+    err.starts_with("Last.fm error 9:")
+}
+
+/// Drop a session Last.fm has rejected, in memory and in the DB, so the UI
+/// shows disconnected instead of failing silently forever. Only clears if the
+/// session is still `sk` — the user may have re-authenticated in the meantime.
+fn invalidate_session(app: &AppHandle, sk: &str) {
+    if let Some(lastfm) = app.try_state::<LastFmState>() {
+        if let Ok(mut guard) = lastfm.0.lock() {
+            if guard.session_key.as_deref() != Some(sk) {
+                return;
+            }
+            guard.session_key = None;
+            guard.username = None;
+        }
+    }
+    if let Some(db) = app.try_state::<Mutex<Connection>>() {
+        if let Ok(conn) = db.lock() {
+            clear_stored_session(&conn);
+        }
+    }
 }
 
 // ── Track metadata fetched from DB ────────────────────────────────────────────
@@ -234,8 +286,12 @@ fn flush_queue(conn: &Connection, api_key: &str, api_secret: &str, sk: &str) {
         if let Some(al) = album {
             params.insert("album[0]", al);
         }
-        if api_post(params, api_secret).is_ok() {
+        let result = api_post(params, api_secret);
+        if result.is_ok() {
             let _ = conn.execute("DELETE FROM lastfm_scrobble_queue WHERE id = ?1", [id]);
+        } else if result.as_ref().is_err_and(|e| is_invalid_session(e)) {
+            // Session rejected — keep the rest queued for the next sign-in.
+            break;
         } else {
             // Increment attempt counter; give up after 5 failures.
             let _ = conn.execute(
@@ -292,17 +348,22 @@ pub fn on_track_start(app: &AppHandle, track_id: i64) {
     let title = meta.title.clone();
     let artist = meta.artist.clone();
     let album = meta.album.clone();
+    let app = app.clone();
     std::thread::spawn(move || {
         let mut params: BTreeMap<&str, String> = BTreeMap::new();
         params.insert("method", "track.updateNowPlaying".into());
         params.insert("api_key", api_key);
-        params.insert("sk", sk);
+        params.insert("sk", sk.clone());
         params.insert("track", title);
         params.insert("artist", artist);
         if let Some(al) = album {
             params.insert("album", al);
         }
-        let _ = api_post(params, &api_secret);
+        if let Err(e) = api_post(params, &api_secret) {
+            if is_invalid_session(&e) {
+                invalidate_session(&app, &sk);
+            }
+        }
     });
 }
 
@@ -366,11 +427,15 @@ pub fn on_track_scrobble(app: &AppHandle, track_id: i64) {
                         }
                     }
                 }
-                Err(_) => {
+                Err(e) => {
                     if let Some(db) = db_arc {
                         if let Ok(conn) = db.lock() {
                             queue_push(&conn, &TrackMeta { title, artist, album, duration_ms: None }, timestamp);
                         }
+                    }
+                    // After the DB lock above is released — invalidate_session locks it too.
+                    if is_invalid_session(&e) {
+                        invalidate_session(&app, &sk);
                     }
                 }
             }
@@ -393,17 +458,52 @@ pub struct LastFmStatus {
     pub username: Option<String>,
     pub pending: bool,
     pub configured: bool,
+    pub stay_signed_in: bool,
 }
 
 #[tauri::command]
-pub fn lastfm_get_status(lastfm: State<LastFmState>) -> LastFmStatus {
+pub fn lastfm_get_status(app: AppHandle, lastfm: State<LastFmState>) -> LastFmStatus {
+    let stay = app
+        .state::<Mutex<Connection>>()
+        .lock()
+        .map(|conn| stay_signed_in(&conn))
+        .unwrap_or(false);
     let guard = lastfm.0.lock().unwrap();
     LastFmStatus {
         connected: guard.session_key.is_some(),
         username: guard.username.clone(),
         pending: guard.pending_token.is_some(),
         configured: guard.creds().is_some(),
+        stay_signed_in: stay,
     }
+}
+
+/// Opt in/out of keeping the Last.fm session across restarts on this computer.
+/// Turning it on persists the current session immediately (if connected);
+/// turning it off deletes the stored session — the live session keeps working
+/// until the app exits.
+#[tauri::command]
+pub fn lastfm_set_stay_signed_in(
+    app: AppHandle,
+    lastfm: State<LastFmState>,
+    enabled: bool,
+) -> Result<(), String> {
+    let session = {
+        let guard = lastfm.0.lock().map_err(|e| e.to_string())?;
+        guard.session_key.clone().zip(guard.username.clone())
+    };
+    let db = app.state::<Mutex<Connection>>();
+    let conn = db.lock().map_err(|e| e.to_string())?;
+    if enabled {
+        kv_set(&conn, KEY_STAY_SIGNED_IN, "true");
+        if let Some((sk, name)) = session {
+            store_session(&conn, &sk, &name);
+        }
+    } else {
+        kv_del(&conn, KEY_STAY_SIGNED_IN);
+        clear_stored_session(&conn);
+    }
+    Ok(())
 }
 
 /// Save the app API key + shared secret (entered in Settings) and persist them.
@@ -427,6 +527,7 @@ pub fn lastfm_set_credentials(
         kv_set(&conn, "lastfm.api_key", &key);
         kv_set(&conn, "lastfm.api_secret", &secret);
     }
+    clear_stored_session(&conn);
     let mut guard = lastfm.0.lock().map_err(|e| e.to_string())?;
     guard.api_key = if key.is_empty() { None } else { Some(key) };
     guard.api_secret = if secret.is_empty() { None } else { Some(secret) };
@@ -467,6 +568,7 @@ pub fn lastfm_start_auth(lastfm: State<LastFmState>) -> Result<String, String> {
 /// Step 2 of auth: exchange the approved token for a session key.
 #[tauri::command]
 pub fn lastfm_complete_auth(
+    app: AppHandle,
     lastfm: State<LastFmState>,
 ) -> Result<String, String> {
     let (api_key, api_secret, token) = {
@@ -494,7 +596,15 @@ pub fn lastfm_complete_auth(
         .ok_or("No name in session")?
         .to_string();
     {
-        // Session stays in memory only — never persisted, so it clears on exit.
+        // Persisted only when the user opted in to "Stay signed in"; otherwise
+        // the session lives in memory and clears on exit.
+        let db = app.state::<Mutex<Connection>>();
+        let conn = db.lock().map_err(|e| e.to_string())?;
+        if stay_signed_in(&conn) {
+            store_session(&conn, &sk, &name);
+        }
+    }
+    {
         let mut guard = lastfm.0.lock().map_err(|e| e.to_string())?;
         guard.session_key = Some(sk);
         guard.username = Some(name.clone());
@@ -513,8 +623,7 @@ pub fn lastfm_logout(app: AppHandle, lastfm: State<LastFmState>) -> Result<(), S
     }
     let db = app.state::<Mutex<Connection>>();
     let conn = db.lock().map_err(|e| e.to_string())?;
-    kv_del(&conn, "lastfm.session_key");
-    kv_del(&conn, "lastfm.username");
+    clear_stored_session(&conn);
     Ok(())
 }
 
@@ -543,10 +652,16 @@ pub fn lastfm_love(
     let mut params: BTreeMap<&str, String> = BTreeMap::new();
     params.insert("method", if love { "track.love".into() } else { "track.unlove".into() });
     params.insert("api_key", api_key);
-    params.insert("sk", sk);
+    params.insert("sk", sk.clone());
     params.insert("track", meta.title);
     params.insert("artist", meta.artist);
-    api_post(params, &api_secret)?;
+    if let Err(e) = api_post(params, &api_secret) {
+        if is_invalid_session(&e) {
+            invalidate_session(&app, &sk);
+            return Err("Last.fm session expired — please reconnect.".into());
+        }
+        return Err(e);
+    }
     Ok(())
 }
 

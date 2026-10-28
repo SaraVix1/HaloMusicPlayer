@@ -134,7 +134,7 @@ pub fn run() {
             let player = audio::PlayerHandle::new(saved_volume, std::sync::Arc::clone(&eq_state))
                 .expect("failed to init audio");
             app.manage(player);
-            app.manage(commands::player::ShuffleHistory::new());
+            app.manage(commands::player::ShuffleState::default());
             app.manage(commands::sleep_timer::SleepTimer::new());
 
             // Media controls (Windows SMTC, macOS MPRemoteCommandCenter, Linux MPRIS).
@@ -327,6 +327,7 @@ pub fn run() {
             commands::library::get_most_played,
             commands::lastfm::lastfm_get_status,
             commands::lastfm::lastfm_set_credentials,
+            commands::lastfm::lastfm_set_stay_signed_in,
             commands::lastfm::lastfm_start_auth,
             commands::lastfm::lastfm_complete_auth,
             commands::lastfm::lastfm_logout,
