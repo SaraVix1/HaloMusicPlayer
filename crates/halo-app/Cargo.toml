@@ -20,7 +20,7 @@ open = "5"
 interprocess = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tray-icon = "0.21"
+tray-icon = "0.23"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
 ureq = "2"
 
