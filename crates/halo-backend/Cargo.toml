@@ -1,0 +1,55 @@
+[package]
+name = "halo-backend"
+description = "Halo music player backend: library, scanner, audio engine, playback, OS integration"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+halo-core = { path = "../halo-core" }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+walkdir = "2"
+lofty = "0.21"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+sha2 = "0.10"
+hex = "0.4"
+rodio = { version = "0.20", default-features = false, features = [
+    "symphonia-mp3",    # MP3
+    "symphonia-flac",   # FLAC
+    "symphonia-wav",    # WAV / PCM
+    "symphonia-aiff",   # AIFF
+    "symphonia-vorbis", # Vorbis codec + OGG container (symphonia-ogg doesn't exist in 0.20)
+    "symphonia-isomp4", # M4A / MP4 container
+    "symphonia-aac",    # AAC codec
+    "symphonia-alac",   # Apple Lossless
+] }
+rubato = "0.16"
+cpal = "0.15"
+souvlaki = "0.8"
+ureq = { version = "2", features = ["json"] }
+tokio = { version = "1", features = ["sync"] }
+dirs = "6"
+md5 = "0.7"
+urlencoding = "2"
+notify = "6"
+fastrand = "2"
+
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Dwm",
+    "Win32_Storage_EnhancedStorage",
+    "Win32_System_Com",
+    "Win32_Foundation",
+    "Win32_System_WinRT",
+    "Foundation",
+    "Media",
+    "Storage",
+    "Storage_Streams",
+] }
+

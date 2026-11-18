@@ -1,0 +1,17 @@
+[package]
+name = "halo"
+description = "Halo Music Player — a desktop music player"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+default-run = "halo"
+
+[[bin]]
+name = "halo"
+path = "src/main.rs"
+
+[dependencies]
+halo-backend = { path = "../halo-backend" }
+halo-core = { path = "../halo-core" }
+iced = { version = "0.14", features = ["tokio", "image", "svg", "canvas", "advanced"] }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
