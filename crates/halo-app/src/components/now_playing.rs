@@ -434,7 +434,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     right = right.push(
         slider(0.0..=100.0, (vol * 100.0).round(), |v| np(Msg::Volume(v / 100.0)))
             .on_release(np(Msg::VolumeRelease))
-            .step(1.0)
+            .step(1.0_f32)
             .width(80)
             .height(16)
             .style(theme::slider_style),

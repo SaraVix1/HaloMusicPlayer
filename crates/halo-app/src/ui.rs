@@ -383,3 +383,75 @@ pub fn kbd<'a, M: 'a>(label: &'a str) -> Element<'a, M> {
         })
         .into()
 }
+
+// ── Dialog ────────────────────────────────────────────────────────────────────
+
+/// shadcn `Dialog`: `bg-black/10` backdrop (click closes), centred popup
+/// (`max-w-sm` = 384px by default, `p-4 gap-4 rounded-xl`), title and a
+/// ghost close button in the top-right corner.
+pub fn modal<'a, M: Clone + 'a>(
+    title: &'a str,
+    body: impl Into<Element<'a, M>>,
+    footer: Option<Element<'a, M>>,
+    width: f32,
+    on_close: M,
+) -> Element<'a, M> {
+    use iced::widget::{column, mouse_area, opaque, stack};
+    let close = button(icon_box(Icon::X, 16.0, 28.0, 28.0))
+        .padding(0)
+        .style(theme::btn_ghost)
+        .on_press(on_close.clone());
+    let head = row![
+        text(title).size(theme::TEXT_BASE).font(theme::MEDIUM).width(Length::Fill),
+        close,
+    ]
+    .align_y(Alignment::Center);
+    let mut card = column![
+        container(column![head, body.into()].spacing(16)).padding(Padding::from([12.0, 16.0]).bottom(16.0)),
+    ];
+    if let Some(f) = footer {
+        card = card.push(
+            container(f)
+                .width(Length::Fill)
+                .padding(16)
+                .style(theme::dialog_footer),
+        );
+    }
+    let card = container(card).width(width).style(theme::dialog);
+    let backdrop = mouse_area(
+        container(space())
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(theme::backdrop(0.10)),
+    )
+    .on_press(on_close);
+    stack![
+        opaque(backdrop),
+        center(opaque(card)).padding(16),
+    ]
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
+}
+
+/// Small text button used in dialogs / inline editors: primary fill or
+/// bordered outline, `px-3 py-1 text-xs rounded-md`.
+pub fn small_button<'a, M: Clone + 'a>(
+    label: impl text::IntoFragment<'a>,
+    primary: bool,
+    on_press: Option<M>,
+) -> Element<'a, M> {
+    button(text(label).size(theme::TEXT_XS))
+        .padding(Padding::from([4.0, 12.0]))
+        .style(move |th, st| {
+            let mut s = if primary {
+                theme::btn_primary(th, st)
+            } else {
+                theme::btn_outline(th, st)
+            };
+            s.border.radius = theme::radius(theme::R_MD);
+            s
+        })
+        .on_press_maybe(on_press)
+        .into()
+}

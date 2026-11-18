@@ -439,7 +439,7 @@ impl Halo {
                     return Ok(());
                 }
                 p::set_shuffle(b.clone(), true)?;
-                let start = fastrand_index(ids.len());
+                let start = random_index(ids.len());
                 p::set_queue_and_play(b, ids, start as i64)
             }),
             PlayerCmd::AddToQueue(id) => fire(b, move |b| p::add_to_queue(b, id)),
@@ -619,7 +619,8 @@ impl Halo {
     }
 }
 
-fn fastrand_index(len: usize) -> usize {
+/// Random index in `0..len` (Math.random equivalent for shuffle-play starts).
+pub fn random_index(len: usize) -> usize {
     use std::time::{SystemTime, UNIX_EPOCH};
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

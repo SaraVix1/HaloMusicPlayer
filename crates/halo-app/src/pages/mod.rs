@@ -1,10 +1,36 @@
-//! Routed pages. Each page module owns its state; this module holds the
-//! shared [`Pages`] state, the page [`Msg`] enum and dispatch by route.
+//! Routed pages — one file per page / tab:
+//!
+//! | Route | File |
+//! |---|---|
+//! | All Songs | `songs.rs` (table: `tracks.rs`) |
+//! | Recently Played | `recently_played.rs` |
+//! | Most Played | `most_played.rs` |
+//! | Albums | `albums.rs` |
+//! | Library tabs + standalone pages | `library/{artists,album_artists,composers,genres,years}.rs` |
+//! | Folders | `folders.rs` |
+//! | Queue | `queue.rs` |
+//! | Playlists | `playlists.rs` |
+//! | Playlist detail | `playlist_detail.rs` |
+//! | Smart playlist detail | `smart_playlist.rs` |
+//! | Settings tabs | `settings/*.rs` |
+//! | Dialogs | `dialogs.rs`, `metadata.rs` |
+//!
+//! This module holds the shared [`Pages`] state, the page [`Msg`] enum and
+//! dispatch by route.
 
+pub mod albums;
 pub mod common;
+pub mod dialogs;
 pub mod folders;
 pub mod library;
+pub mod metadata;
+pub mod most_played;
+pub mod playlist_detail;
+pub mod playlists;
 pub mod queue;
+pub mod recently_played;
+pub mod settings;
+pub mod smart_playlist;
 pub mod songs;
 pub mod tracks;
 
@@ -12,10 +38,9 @@ use halo_backend::commands::eq::EqConfig;
 use halo_backend::commands::library::{FolderTrack, Track, TracksQuery};
 use halo_backend::commands::player::QueueTrack;
 use halo_backend::scanner::ScanProgress;
-use iced::widget::{center, text};
-use iced::{Element, Subscription, Task};
+use iced::{event, mouse, Element, Subscription, Task};
 
-use crate::app::{fire, Halo, Message, PlayerCmd};
+use crate::app::{fire, Halo, Message};
 use crate::route::{LibraryTab, Route};
 
 #[derive(Default)]
@@ -28,6 +53,11 @@ pub struct Pages {
     pub library: library::LibraryState,
     pub folders: folders::FoldersState,
     pub queue: queue::QueueState,
+    pub playlists: playlists::PlaylistsState,
+    pub playlist: playlist_detail::DetailState,
+    pub smart: smart_playlist::SmartState,
+    pub settings: settings::SettingsState,
+    pub dialog: Option<dialogs::Dialog>,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +84,13 @@ pub enum Msg {
     QueueRowClick(i64),
     RemoveFromQueue(i64),
     ClearQueue,
+
+    Playlists(playlists::PMsg),
+    PlaylistDetail(playlist_detail::DMsg),
+    Smart(smart_playlist::SMsg),
+    Settings(settings::Msg),
+    Dialog(dialogs::DMsg),
+    Meta(metadata::Msg),
 }
 
 pub fn update(app: &mut Halo, msg: Msg) -> Task<Message> {
@@ -78,16 +115,7 @@ pub fn update(app: &mut Halo, msg: Msg) -> Task<Message> {
             }
             let first = !app.pages.songs.loaded || app.pages.songs_query.as_ref() != Some(&q);
             app.pages.songs_query = Some(q);
-            let l = &mut app.pages.songs;
-            l.loading = false;
-            l.loaded = true;
-            match r {
-                Ok(v) => {
-                    l.tracks = v;
-                    l.error = None;
-                }
-                Err(e) => l.error = Some(e),
-            }
+            set_list(&mut app.pages.songs, r);
             if first {
                 app.pages.scroll.restore(&app.route().scroll_key())
             } else {
@@ -115,14 +143,14 @@ pub fn update(app: &mut Halo, msg: Msg) -> Task<Message> {
                 halo_backend::commands::player::set_queue_and_play(b, ids, 0)
             })
         }
-        Msg::AddToPlaylist(_ids) => Task::none(),
-        Msg::EditMetadata(_id) => Task::none(),
+        Msg::AddToPlaylist(ids) => dialogs::open_add_to_playlist(app, ids),
+        Msg::EditMetadata(id) => metadata::open(app, id),
 
         Msg::LibraryLoaded(l) => {
             library::on_loaded(app, l);
             Task::none()
         }
-        Msg::PlayAlbum(name) => library::play_album(app, name),
+        Msg::PlayAlbum(name) => albums::play_album(app, name),
 
         Msg::FoldersLoaded(r) => {
             folders::on_loaded(app, r);
@@ -144,6 +172,13 @@ pub fn update(app: &mut Halo, msg: Msg) -> Task<Message> {
         Msg::QueueRowClick(i) => queue::row_click(app, i),
         Msg::RemoveFromQueue(id) => queue::remove(app, id),
         Msg::ClearQueue => queue::clear(app),
+
+        Msg::Playlists(m) => playlists::update(app, m),
+        Msg::PlaylistDetail(m) => playlist_detail::update(app, m),
+        Msg::Smart(m) => smart_playlist::update(app, m),
+        Msg::Settings(m) => settings::update(app, m),
+        Msg::Dialog(m) => dialogs::update(app, m),
+        Msg::Meta(m) => metadata::update(app, m),
     }
 }
 
@@ -159,7 +194,7 @@ fn set_list(l: &mut tracks::TrackList, r: Result<Vec<Track>, String>) {
     }
 }
 
-/// Resolve "remembered tab" routes (`/library` without `?tab=`).
+/// Resolve "remembered tab" routes (`/library`, `/settings` without `?tab=`).
 fn normalize_route(app: &mut Halo) {
     match app.route().clone() {
         Route::Library(None) => {
@@ -167,6 +202,11 @@ fn normalize_route(app: &mut Halo) {
             app.history.replace(Route::Library(Some(tab)));
         }
         Route::Library(Some(tab)) => app.pages.library.last_tab = tab,
+        Route::Settings(None) => {
+            let tab = app.pages.settings.last_tab;
+            app.history.replace(Route::Settings(Some(tab)));
+        }
+        Route::Settings(Some(tab)) => app.pages.settings.last_tab = tab,
         _ => {}
     }
 }
@@ -177,9 +217,9 @@ pub fn on_enter(app: &mut Halo) -> Task<Message> {
     let route = app.route().clone();
     let restore = app.pages.scroll.restore(&scroll_key_for(app, &route));
     let load = match &route {
-        Route::Songs(q) => songs::load_songs(app, q.clone()),
-        Route::RecentlyPlayed => songs::load_recent(app),
-        Route::MostPlayed => songs::load_most(app),
+        Route::Songs(q) => songs::load(app, q.clone()),
+        Route::RecentlyPlayed => recently_played::load(app),
+        Route::MostPlayed => most_played::load(app),
         Route::Albums => library::load(app, library::Kind::Albums),
         Route::Library(Some(tab)) => library::load(app, (*tab).into()),
         Route::Library(None) => Task::none(),
@@ -190,9 +230,10 @@ pub fn on_enter(app: &mut Halo) -> Task<Message> {
         Route::Years => library::load(app, library::Kind::Years),
         Route::Folders => load_folders(app),
         Route::Queue => queue::load(app),
-        Route::Playlists | Route::Playlist(_) | Route::SmartPlaylist(_) | Route::Settings(_) => {
-            Task::none()
-        }
+        Route::Playlists => playlists::load(app),
+        Route::Playlist(id) => playlist_detail::load(app, *id),
+        Route::SmartPlaylist(id) => smart_playlist::load(app, *id),
+        Route::Settings(tab) => settings::on_enter(app, tab.unwrap_or_default()),
     };
     Task::batch([load, restore])
 }
@@ -224,10 +265,33 @@ pub fn on_navigate(app: &mut Halo, _prev: Route) -> Task<Message> {
     on_enter(app)
 }
 
-/// `library-changed`: reload what's on screen; mark the rest stale.
+/// `library-changed`: reload what's on screen.
 pub fn on_library_changed(app: &mut Halo) -> Task<Message> {
-    app.pages.recent.loaded = app.pages.recent.loaded && matches!(app.route(), Route::RecentlyPlayed);
-    on_enter(app)
+    match app.route() {
+        Route::SmartPlaylist(_) => smart_playlist::reload_tracks(app),
+        Route::Settings(_) => Task::none(),
+        _ => on_enter(app),
+    }
+}
+
+/// A playlist was created / renamed / changed: refresh the list next time.
+pub fn on_playlists_changed(app: &mut Halo) -> Task<Message> {
+    app.pages.playlists.loaded = false;
+    if matches!(app.route(), Route::Playlists) {
+        playlists::load(app)
+    } else {
+        Task::none()
+    }
+}
+
+/// A confirm dialog was accepted.
+pub fn on_confirm(app: &mut Halo, action: dialogs::ConfirmAction) -> Task<Message> {
+    match action {
+        dialogs::ConfirmAction::DeletePlaylist(id) => playlist_detail::delete_now(app, id),
+        dialogs::ConfirmAction::ResetStats | dialogs::ConfirmAction::ClearDatabase => {
+            settings::on_confirm(app, action)
+        }
+    }
 }
 
 pub fn on_queue_changed(app: &mut Halo) -> Task<Message> {
@@ -238,12 +302,12 @@ pub fn on_queue_changed(app: &mut Halo) -> Task<Message> {
     }
 }
 
-pub fn on_scan_progress(_app: &mut Halo, _p: ScanProgress) -> Task<Message> {
-    Task::none()
+pub fn on_scan_progress(app: &mut Halo, p: ScanProgress) -> Task<Message> {
+    settings::on_scan_progress(app, p)
 }
 
-pub fn on_eq_changed(_app: &mut Halo, _cfg: EqConfig) -> Task<Message> {
-    Task::none()
+pub fn on_eq_changed(app: &mut Halo, cfg: EqConfig) -> Task<Message> {
+    settings::on_eq_changed(app, cfg)
 }
 
 pub fn on_rating_changed(app: &mut Halo, track_id: i64, rating: i64) -> Task<Message> {
@@ -253,39 +317,66 @@ pub fn on_rating_changed(app: &mut Halo, track_id: i64, rating: i64) -> Task<Mes
     Task::none()
 }
 
-pub fn on_escape(_app: &mut Halo) -> Task<Message> {
+pub fn on_escape(app: &mut Halo) -> Task<Message> {
+    if dialogs::on_escape(app) {
+        return Task::none();
+    }
+    let pl = &mut app.pages.playlists;
+    if pl.menu_open || pl.creating.is_some() {
+        pl.menu_open = false;
+        pl.creating = None;
+        return Task::none();
+    }
+    if app.pages.playlist.editing {
+        app.pages.playlist.editing = false;
+    }
+    if app.now_playing.sleep_open {
+        app.now_playing.sleep_open = false;
+    }
     Task::none()
 }
 
-pub fn on_ctrl_enter(_app: &mut Halo) -> Task<Message> {
-    Task::none()
+pub fn on_ctrl_enter(app: &mut Halo) -> Task<Message> {
+    metadata::on_ctrl_enter(app)
 }
 
-pub fn subscription(_app: &Halo) -> Option<Subscription<Message>> {
-    None
+pub fn subscription(app: &Halo) -> Option<Subscription<Message>> {
+    let mut subs = vec![];
+    if playlist_detail::dragging(app) {
+        subs.push(event::listen_with(|e, _, _| match e {
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => Some(
+                Message::Page(Msg::PlaylistDetail(playlist_detail::DMsg::DragEnd)),
+            ),
+            _ => None,
+        }));
+    }
+    if let Some(s) = settings::subscription(app) {
+        subs.push(s);
+    }
+    (!subs.is_empty()).then(|| Subscription::batch(subs))
 }
 
-pub fn overlay(_app: &Halo) -> Option<Element<'_, Message>> {
-    None
+pub fn overlay(app: &Halo) -> Option<Element<'_, Message>> {
+    dialogs::view(app)
 }
 
 pub fn view(app: &Halo) -> Element<'_, Message> {
     match app.route() {
-        Route::Songs(q) => songs::view_songs(app, q),
-        Route::RecentlyPlayed => songs::view_recent(app),
-        Route::MostPlayed => songs::view_most(app),
-        Route::Albums => library::view_standalone(app, library::Kind::Albums),
+        Route::Songs(q) => songs::view(app, q),
+        Route::RecentlyPlayed => recently_played::view(app),
+        Route::MostPlayed => most_played::view(app),
+        Route::Albums => albums::view(app),
         Route::Library(tab) => library::view_library(app, tab.unwrap_or(LibraryTab::Artists)),
-        Route::Artists => library::view_standalone(app, library::Kind::Artists),
-        Route::AlbumArtists => library::view_standalone(app, library::Kind::AlbumArtists),
-        Route::Composers => library::view_standalone(app, library::Kind::Composers),
-        Route::Genres => library::view_standalone(app, library::Kind::Genres),
-        Route::Years => library::view_standalone(app, library::Kind::Years),
+        Route::Artists => library::artists::view(app),
+        Route::AlbumArtists => library::album_artists::view(app),
+        Route::Composers => library::composers::view(app),
+        Route::Genres => library::genres::view(app),
+        Route::Years => library::years::view(app),
         Route::Folders => folders::view(app),
         Route::Queue => queue::view(app),
-        other => center(text(format!("{other:?}"))).into(),
+        Route::Playlists => playlists::view(app),
+        Route::Playlist(_) => playlist_detail::view(app),
+        Route::SmartPlaylist(_) => smart_playlist::view(app),
+        Route::Settings(tab) => settings::view(app, tab.unwrap_or_default()),
     }
 }
-
-#[allow(dead_code)]
-fn _player(_: PlayerCmd) {}

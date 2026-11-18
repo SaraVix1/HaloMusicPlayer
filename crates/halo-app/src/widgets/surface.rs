@@ -283,7 +283,7 @@ impl<'a, Message: Clone> Widget<Message, iced::Theme, iced::Renderer> for Surfac
             hovered,
             pressed: state.pressed && hovered,
         });
-        let mut draw_all = |renderer: &mut iced::Renderer| {
+        let draw_all = |renderer: &mut iced::Renderer| {
             container::draw_background(renderer, &s, bounds);
             let defaults = renderer::Style {
                 text_color: s.text_color.unwrap_or(style.text_color),

@@ -9,7 +9,8 @@ use halo_backend::commands::library::{Track, TracksQuery};
 use iced::widget::{button, column, container, hover, row, text, tooltip::Position, Row};
 use iced::{Alignment, Element, Length, Padding};
 
-use super::common::{self, ScrollMemory};
+use super::common::{self, note, ScrollMemory};
+use crate::app::Halo;
 use super::Msg;
 use crate::app::{Message, PlayerCmd};
 use crate::format::{duration, relative_time};
@@ -357,3 +358,46 @@ pub fn play_buttons<'a>(ids: Vec<i64>) -> Element<'a, Message> {
     .on_press_maybe(enabled.then(|| Message::Player(PlayerCmd::ShufflePlay(ids.clone()))));
     row![play_all, shuffle].spacing(8).align_y(Alignment::Center).into()
 }
+
+/// Page frame shared by the track-list pages: header with Play All /
+/// Shuffle Play + count, optional filter chips, then the table.
+pub fn page<'a>(
+    app: &'a Halo,
+    title: &'a str,
+    list: &'a TrackList,
+    variant: Variant,
+    q: Option<&TracksQuery>,
+    empty: Element<'a, Message>,
+) -> Element<'a, Message> {
+    let current = app.player.current_track.as_ref().map(|t| t.track_id);
+    let n = list.tracks.len();
+    let header = common::header(
+        title,
+        row![
+            play_buttons(list.ids()),
+            common::count(n, "track", "tracks"),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center),
+    );
+    let mut col = column![header].spacing(16).height(Length::Fill);
+    if let Some(c) = q.and_then(super::songs::chips) {
+        col = col.push(c);
+    }
+    if let Some(e) = &list.error {
+        col = col.push(common::error_text(e));
+    }
+    let key = app.route().scroll_key();
+    let body: Element<'a, Message> = if list.loading {
+        note("Loading…")
+    } else if n == 0 {
+        empty
+    } else {
+        let sortable = variant == Variant::Songs;
+        let arrow = q.filter(|q| super::songs::has_arrow(q)).map(super::songs::sort_state);
+        table(list, variant, sortable, arrow, current, key, &app.pages.scroll)
+    };
+    col = col.push(body);
+    common::padded(col)
+}
+

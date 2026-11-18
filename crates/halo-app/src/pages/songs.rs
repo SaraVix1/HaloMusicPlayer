@@ -1,11 +1,11 @@
-//! All Songs (with URL-style filters + sort), Recently Played, Most Played.
+//! All Songs (`all-songs.tsx`): filter chips from the URL-style query, sortable
+//! columns, Play All / Shuffle Play.
 
 use halo_backend::commands::library::{self, TracksQuery};
-use iced::widget::{button, column, row, text};
-use iced::{Alignment, Element, Length, Padding, Task};
+use iced::widget::{button, row, text};
+use iced::{Alignment, Element, Padding, Task};
 
-use super::common::{self, note};
-use super::tracks::{self, SortKey, TrackList, Variant};
+use super::tracks::{self, SortKey, Variant};
 use super::Msg;
 use crate::app::{bg, Halo, Message};
 use crate::icons::{icon, Icon};
@@ -19,7 +19,7 @@ pub fn query_for(q: &TracksQuery) -> TracksQuery {
     q
 }
 
-pub fn load_songs(app: &mut Halo, q: TracksQuery) -> Task<Message> {
+pub fn load(app: &mut Halo, q: TracksQuery) -> Task<Message> {
     app.pages.songs.loading = !app.pages.songs.loaded;
     app.pages.songs.error = None;
     let q2 = query_for(&q);
@@ -27,24 +27,6 @@ pub fn load_songs(app: &mut Halo, q: TracksQuery) -> Task<Message> {
         &app.backend,
         move |b| library::get_tracks(q2, b.db()),
         move |r| Message::Page(Msg::SongsLoaded(q, r)),
-    )
-}
-
-pub fn load_recent(app: &mut Halo) -> Task<Message> {
-    app.pages.recent.loading = !app.pages.recent.loaded;
-    bg(
-        &app.backend,
-        |b| library::get_recently_played(b.db()),
-        |r| Message::Page(Msg::RecentLoaded(r)),
-    )
-}
-
-pub fn load_most(app: &mut Halo) -> Task<Message> {
-    app.pages.most.loading = !app.pages.most.loaded;
-    bg(
-        &app.backend,
-        |b| library::get_most_played(b.db()),
-        |r| Message::Page(Msg::MostLoaded(r)),
     )
 }
 
@@ -63,7 +45,7 @@ pub fn sorted(q: &TracksQuery, key: SortKey) -> TracksQuery {
     next
 }
 
-fn sort_state(q: &TracksQuery) -> (SortKey, bool) {
+pub fn sort_state(q: &TracksQuery) -> (SortKey, bool) {
     let key = match q.sort.as_deref().unwrap_or("title") {
         "artist" => SortKey::Artist,
         "album" => SortKey::Album,
@@ -77,7 +59,7 @@ fn sort_state(q: &TracksQuery) -> (SortKey, bool) {
     (key, q.direction.as_deref() != Some("desc"))
 }
 
-fn has_arrow(q: &TracksQuery) -> bool {
+pub fn has_arrow(q: &TracksQuery) -> bool {
     matches!(
         q.sort.as_deref().unwrap_or("title"),
         "title" | "artist" | "album" | "genre" | "duration" | "rating"
@@ -107,7 +89,7 @@ pub fn without(q: &TracksQuery, f: Filter) -> TracksQuery {
     n
 }
 
-fn chips<'a>(q: &TracksQuery) -> Option<Element<'a, Message>> {
+pub fn chips<'a>(q: &TracksQuery) -> Option<Element<'a, Message>> {
     let mut out: Vec<(Filter, String)> = vec![];
     if let Some(v) = &q.album {
         out.push((Filter::Album, format!("Album: {v}")));
@@ -176,68 +158,7 @@ fn empty_library<'a>() -> Element<'a, Message> {
     .into()
 }
 
-fn page<'a>(
-    app: &'a Halo,
-    title: &'a str,
-    list: &'a TrackList,
-    variant: Variant,
-    q: Option<&TracksQuery>,
-    empty: Element<'a, Message>,
-) -> Element<'a, Message> {
-    let current = app.player.current_track.as_ref().map(|t| t.track_id);
-    let n = list.tracks.len();
-    let header = common::header(
-        title,
-        row![
-            tracks::play_buttons(list.ids()),
-            common::count(n, "track", "tracks"),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center),
-    );
-    let mut col = column![header].spacing(16).height(Length::Fill);
-    if let Some(c) = q.and_then(chips) {
-        col = col.push(c);
-    }
-    if let Some(e) = &list.error {
-        col = col.push(common::error_text(e));
-    }
-    let key = app.route().scroll_key();
-    let body: Element<'a, Message> = if list.loading {
-        note("Loading…")
-    } else if n == 0 {
-        empty
-    } else {
-        let sortable = variant == Variant::Songs;
-        let arrow = q.filter(|q| has_arrow(q)).map(sort_state);
-        tracks::table(list, variant, sortable, arrow, current, key, &app.pages.scroll)
-    };
-    col = col.push(body);
-    common::padded(col)
+pub fn view<'a>(app: &'a Halo, q: &'a TracksQuery) -> Element<'a, Message> {
+    tracks::page(app, "All Songs", &app.pages.songs, Variant::Songs, Some(q), empty_library())
 }
 
-pub fn view_songs<'a>(app: &'a Halo, q: &'a TracksQuery) -> Element<'a, Message> {
-    page(app, "All Songs", &app.pages.songs, Variant::Songs, Some(q), empty_library())
-}
-
-pub fn view_recent(app: &Halo) -> Element<'_, Message> {
-    page(
-        app,
-        "Recently Played",
-        &app.pages.recent,
-        Variant::Recent,
-        None,
-        note("No recently played tracks."),
-    )
-}
-
-pub fn view_most(app: &Halo) -> Element<'_, Message> {
-    page(
-        app,
-        "Most Played",
-        &app.pages.most,
-        Variant::MostPlayed,
-        None,
-        note("No play history yet."),
-    )
-}
