@@ -311,17 +311,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                     border: theme::no_border(theme::R_XS),
                     ..Default::default()
                 }),
-            row![
-                container(Space::new())
-                    .width(Length::FillPortion((pct as u16).max(0)))
-                    .height(6)
-                    .style(|_| iced::widget::container::Style {
-                        background: Some(t().primary.into()),
-                        border: theme::no_border(theme::R_XS),
-                        ..Default::default()
-                    }),
-                Space::new().width(Length::FillPortion((100 - pct as u16).max(0))),
-            ],
+            ui::progress(pct / 100.0, 6.0, t().primary, theme::R_XS),
         ];
         let mut card = column![
             row![

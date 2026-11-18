@@ -493,3 +493,29 @@ pub fn spin_angle() -> f32 {
         .unwrap_or(0);
     ms as f32 / 1000.0 * std::f32::consts::TAU
 }
+
+/// Horizontal progress fill: `fraction` (0..=1) of the width in `fill`
+/// colour (no zero-width `FillPortion` artefacts at 0 / 100%).
+pub fn progress<'a, M: 'a>(fraction: f32, height: f32, fill: Color, radius: f32) -> Element<'a, M> {
+    let f = (fraction.clamp(0.0, 1.0) * 1000.0).round() as u16;
+    let bar = move || {
+        container(space())
+            .width(Length::Fill)
+            .height(height)
+            .style(move |_| container::Style {
+                background: Some(fill.into()),
+                border: theme::no_border(radius),
+                ..container::Style::default()
+            })
+    };
+    match f {
+        0 => space().width(Length::Fill).height(height).into(),
+        1000 => bar().into(),
+        f => row![
+            container(bar()).width(Length::FillPortion(f)),
+            space().width(Length::FillPortion(1000 - f)),
+        ]
+        .height(height)
+        .into(),
+    }
+}
