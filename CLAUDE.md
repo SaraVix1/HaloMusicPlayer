@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Halo** is a desktop music player written entirely in Rust: a native UI built with [iced](https://iced.rs) 0.14, SQLite for the library, and rodio/symphonia for audio. See [docs/plan/halo-future-features.md](docs/plan/halo-future-features.md) for the feature roadmap and [docs/ACTIVE_WORK.md](docs/ACTIVE_WORK.md) for what's in flight. Non-obvious traps are collected in [docs/HAZARDS.md](docs/HAZARDS.md).
 
-(Halo was a Tauri v2 + React app until the `iced-port` branch; the UI was ported 1:1 — same shadcn "neutral" look, Geist font, Lucide icons, layout and behaviour.)
+(Halo was a Tauri v2 + React app until v0.1.4, when the `iced-port` branch was merged ([PR #9](https://github.com/SaraVix1/HaloMusicPlayer/pull/9)); the UI was ported 1:1 — same shadcn "neutral" look, Geist font, Lucide icons, layout and behaviour.)
 
 ## Prerequisites
 
@@ -146,5 +146,5 @@ See "Testing the UI headless (Xvfb)" in [docs/HAZARDS.md](docs/HAZARDS.md): `xvf
 | 1–6 | ✅ Complete | Foundation, scanning, core views, playback, playlists + search, polish |
 | v1.1 — User expectations | 🚧 In progress | ratings, sleep timer, mini player, lyrics, metadata editor, library tabs ✅; EQ, smart playlists, Last.fm |
 | Arch A–C | ✅ Complete | `halo-core` extraction, event-driven audio, platform ports |
-| iced port | ✅ Complete | Tauri/React → iced; `halo-backend` + `halo-app` crates; cargo-packager installers |
+| iced port | ✅ Merged (v0.1.4) | Tauri/React → iced; `halo-backend` + `halo-app` crates; cargo-packager installers. Hardware checks pending (ACTIVE_WORK) |
 | Arch D — Android / E — iOS | ⏳ Pending | (designed against the old webview shell — needs a re-plan for iced) |

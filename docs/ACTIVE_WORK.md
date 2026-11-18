@@ -8,13 +8,11 @@ Keep entries short. Link to the full spec rather than duplicating it.
 
 ## In Progress
 
-- **iced port** — Tauri v2 + React replaced by a native iced 0.14 UI on branch `iced-port`: `crates/halo-backend` (Tauri-free backend) + `crates/halo-app` (UI, one file per page/tab), cargo-packager installers (+ `.rpm` via cargo-generate-rpm). Linux targets Debian 12 + 13 (packages built on bookworm; release install-tests the `.deb` on both). CI green on Debian 12 / 13 / Windows.
-  - Fixed after the `v0.1.3-iced-port.12` test, **not yet re-tested on real hardware**: tray menu actions (channel created too late); mini player off-screen at 125 % on Windows (saved position is physical px — HAZARDS); mini snaps back into the work area after a drag; close-to-tray minimizes when no tray exists (plain GNOME).
-  - Release from `iced-port` passes: `v0.1.3-iced-port.16` (bookworm-container build; `.deb` installs, loads its libraries and launches on Debian 12 and 13). The RPM built in run #14 but wasn't in #16 (unticked).
-  - MX KDE (Wayland) test of `.16`: opening the mini player left the main window up and the mini player wasn't on top (Wayland can't do either). Fixed by running under XWayland (`HALO_WAYLAND=1` opts out); verified on MX KDE (Wayland session).
-  - Next: check the next build on Windows 125 % (mini player, tray), KDE / GNOME (tray), Debian (`.deb` install).
+- **iced port: hardware checks** — the port (Tauri v2 + React → native iced 0.14: `crates/halo-backend` + `crates/halo-app`, cargo-packager installers + `.rpm`) was merged into `main` in [PR #9](https://github.com/SaraVix1/HaloMusicPlayer/pull/9) and ships from v0.1.4. Linux targets Debian 12 + 13 (packages built on bookworm; Release install-tests the `.deb` on both, last passed in `v0.1.3-iced-port.16`). CI green on Debian 12 / 13 / Windows.
+  - Verified: MX KDE (Wayland) — the mini player hides the main window and stays on top (Halo runs under XWayland; `HALO_WAYLAND=1` opts out).
+  - To check, **before the first Release from `main` (v0.1.4, marked Latest)**: Windows 125 % (mini player opens and remembers its position, tray actions); tray actions on KDE and GNOME (with the AppIndicator extension; without it close-to-tray should minimize); `.deb` install on Debian; an `.rpm` (built in run #14, never installed).
   - Open question: CI compiles on both Debian 12 and 13 — keep, or compile on 12 only plus a quick Debian 13 dependency-name check?
-  - Still unverified: media keys / file associations on Windows & macOS hardware; macOS "Open with" while running (no iced API yet).
+  - Still unverified: media keys / file associations on Windows & macOS hardware; the macOS build; macOS "Open with" while running (no iced API yet).
 
 <!--
 Template:
