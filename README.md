@@ -50,7 +50,7 @@ Halo is a fast, native desktop music player for your local library, written enti
 
 ## Platform support
 
-Halo currently runs on **Windows, macOS, and Linux**. Mobile (Android/iOS) support is on the roadmap — see [docs/plan/halo-future-features.md](docs/plan/halo-future-features.md).
+Halo currently runs on **Windows, macOS, and Linux**. On Linux the target is **Debian 12 (bookworm) and Debian 13 (trixie)**: packages are built on Debian 12, and every release's `.deb` is install-tested on both. The tray icon works on KDE Plasma, COSMIC, Deepin, Cinnamon, XFCE, Budgie and MATE. GNOME needs the AppIndicator extension (`sudo apt install gnome-shell-extension-appindicator`, then log out and in); without a tray, the close button minimizes instead of hiding to the tray. Mobile (Android/iOS) support is on the roadmap — see [docs/plan/halo-future-features.md](docs/plan/halo-future-features.md).
 
 ## Installing
 

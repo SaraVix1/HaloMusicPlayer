@@ -156,3 +156,63 @@ pub fn events() -> Subscription<TrayAction> {
         })
     })
 }
+
+/// Whether something can show the tray icon right now, i.e. whether
+/// "close to tray" leaves the user a way back. Blocking (a D-Bus round trip
+/// and an X11 query, normally a few ms) — call it off the UI thread.
+///
+/// Linux desktops differ: KDE Plasma, COSMIC, Deepin, Cinnamon, XFCE
+/// (4.16+ status tray), Budgie 10.9+ and GNOME *with* the AppIndicator
+/// extension host StatusNotifierItems over D-Bus; older XFCE / Budgie / MATE
+/// panels only have the legacy XEmbed tray, which libayatana-appindicator
+/// falls back to on X11. Plain GNOME has neither.
+#[cfg(target_os = "linux")]
+pub fn host_available() -> bool {
+    sni_host_registered() || xembed_tray_present()
+}
+
+/// Windows always has a notification area; macOS always has a menu bar.
+#[cfg(not(target_os = "linux"))]
+pub fn host_available() -> bool {
+    true
+}
+
+/// A StatusNotifierWatcher with at least one registered host (a panel that
+/// actually draws the items).
+#[cfg(target_os = "linux")]
+fn sni_host_registered() -> bool {
+    use dbus::blocking::stdintf::org_freedesktop_dbus::Properties;
+    let Ok(conn) = dbus::blocking::Connection::new_session() else {
+        return false;
+    };
+    let watcher = conn.with_proxy(
+        "org.kde.StatusNotifierWatcher",
+        "/StatusNotifierWatcher",
+        std::time::Duration::from_millis(500),
+    );
+    watcher
+        .get::<bool>("org.kde.StatusNotifierWatcher", "IsStatusNotifierHostRegistered")
+        .unwrap_or(false)
+}
+
+/// A legacy (XEmbed) system tray: some client owns `_NET_SYSTEM_TRAY_S<n>`.
+#[cfg(target_os = "linux")]
+fn xembed_tray_present() -> bool {
+    let Ok(xlib) = x11_dl::xlib::Xlib::open() else {
+        return false;
+    };
+    // SAFETY: plain Xlib calls on a display we open and close here; the atom
+    // name is a NUL-terminated CString that outlives the call.
+    unsafe {
+        let display = (xlib.XOpenDisplay)(std::ptr::null());
+        if display.is_null() {
+            return false; // no X server (pure Wayland session)
+        }
+        let screen = (xlib.XDefaultScreen)(display);
+        let name = std::ffi::CString::new(format!("_NET_SYSTEM_TRAY_S{screen}")).unwrap_or_default();
+        let atom = (xlib.XInternAtom)(display, name.as_ptr(), 1);
+        let owner = if atom == 0 { 0 } else { (xlib.XGetSelectionOwner)(display, atom) };
+        (xlib.XCloseDisplay)(display);
+        owner != 0
+    }
+}

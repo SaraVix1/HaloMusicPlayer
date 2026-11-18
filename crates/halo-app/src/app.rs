@@ -66,6 +66,8 @@ pub enum Message {
     WindowOpened(window::Id),
     WindowEvent(window::Id, window::Event),
     CloseRequested(window::Id),
+    /// Close button with "minimize to tray": is there a tray to hide into?
+    CloseToTray(bool),
     DragWindow(window::Id),
     ResizeWindow(window::Id, window::Direction),
     Minimize,
@@ -310,7 +312,20 @@ impl Halo {
                 if behavior == "quit" {
                     iced::exit()
                 } else {
+                    // Only hide if a tray can bring the window back (plain
+                    // GNOME has none); otherwise minimize to the dock.
+                    Task::perform(
+                        async { tokio::task::spawn_blocking(tray::host_available).await.unwrap_or(true) },
+                        Message::CloseToTray,
+                    )
+                }
+            }
+            Message::CloseToTray(has_tray) => {
+                if has_tray {
                     self.hide_main()
+                } else {
+                    eprintln!("no system tray available: minimizing instead of hiding to tray");
+                    self.main_id.map(|id| window::minimize(id, true)).unwrap_or_else(Task::none)
                 }
             }
             Message::DragWindow(id) => window::drag(id),

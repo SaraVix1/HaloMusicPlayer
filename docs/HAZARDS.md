@@ -175,6 +175,18 @@ Each entry: **symptom → cause → fix**.
 
 **Fix.** [crates/halo-app/src/tray.rs](../crates/halo-app/src/tray.rs) builds the icon on a dedicated `halo-tray` thread that calls `gtk::init()` then `gtk::main()`. On Windows/macOS the icon must instead be created on the main thread, which is where iced runs `update` (done on the first `WindowOpened`). Menu / click events reach iced via channels → `tray::events()` subscription.
 
+**Desktop coverage.** libayatana-appindicator talks StatusNotifierItem (SNI) + DBusMenu, and falls back to a legacy XEmbed icon on X11 when no SNI watcher exists:
+
+| Desktop | Tray |
+|---|---|
+| KDE Plasma, COSMIC, Deepin, Cinnamon (xapp-sn-watcher), XFCE 4.16+ (Status Tray), Budgie 10.9+ | SNI |
+| Older XFCE / Budgie, MATE | XEmbed fallback (X11 only) |
+| GNOME | none, unless the AppIndicator extension is installed (`gnome-shell-extension-appindicator`; the .deb Suggests it) |
+
+- SNI hosts usually open the menu on **right**-click (left-click on KDE, since appindicator items set `ItemIsMenu`). There is no left-click "Show" event on Linux; use the menu's "Show Halo".
+- **No tray, no hiding:** with "minimize to tray", the close button first calls `tray::host_available()`. It checks for a D-Bus `org.kde.StatusNotifierWatcher` with `IsStatusNotifierHostRegistered`, or an X11 `_NET_SYSTEM_TRAY_S<n>` owner, and minimizes instead of hiding when neither exists. Otherwise plain GNOME users would lose the window until they relaunch Halo.
+- **Headless testing:** `dbus-launch` fails in the sandbox; use `dbus-run-session -- …`. `stalonetray` provides an XEmbed tray and `gtk-sni-tray-standalone --watcher` an SNI tray; both are on Ubuntu's apt.
+
 ---
 
 ## Tray actions are lost if `tray::events()` starts before the channel exists
