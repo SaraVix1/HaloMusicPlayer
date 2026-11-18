@@ -23,7 +23,7 @@ pub struct Track {
     pub last_played_at: Option<i64>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq, Hash)]
 #[serde(default)]
 pub struct TracksQuery {
     pub album: Option<String>,
