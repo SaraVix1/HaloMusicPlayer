@@ -73,7 +73,8 @@ crates/
     ├── linux/halo.desktop.hbs  # deb desktop template (MimeType, StartupWMClass)
     ├── linux/rpm/halo.desktop  # the same, rendered, for the .rpm — keep in sync
     └── src/
-        ├── main.rs             # AUMID → single-instance forward → Backend::start → iced::daemon
+        ├── main.rs             # Linux: prefer X11/XWayland → AUMID → single-instance forward →
+        │                       # Backend::start → iced::daemon; open_url (browser keeps Wayland)
         ├── app.rs              # Halo state, Message, update, view per window, subscriptions, window
         │                       # management (hide/show main, open mini, close-to-tray), bg()/fire() helpers
         ├── route.rs            # Route enum (old URL paths) + History (back/forward)
@@ -124,9 +125,11 @@ A 250 ms thread drives: sleep-timer tick, `player::handle_audio_events` (track e
 | Window | Notes |
 |---|---|
 | Main | 1200×750 (min 900×600), undecorated with custom title bar + 6px edge resize handles, `exit_on_close_request: false` — the close button hides to tray or quits per the "Close button" setting. Hidden (never closed) while the mini player is open; its HWND backs Windows SMTC. |
-| Mini | 280×30, opened on demand, transparent, not resizable, always-on-top (pref, re-applied after map for Wayland), skip-taskbar on Windows, position saved (300 ms debounce) in `app_state`. Hover controls appear once the pointer moves past the 30px art. |
+| Mini | 280×30, opened on demand, transparent (Linux), not resizable, always-on-top (pref, re-applied after map), skip-taskbar on Windows, position saved (300 ms debounce) in `app_state`. Hover controls appear once the pointer moves past the 30px art. |
 
 The tray (Play/Pause, Previous, Next, Show Halo, Mini player, Quit) and the single-instance socket both route through `Message`s.
+
+On Linux Halo runs under X11 (XWayland on a Wayland session) unless `HALO_WAYLAND=1`: Wayland can't hide a window, keep it on top or place it (HAZARDS).
 
 ### Look & feel
 

@@ -77,7 +77,7 @@ pub fn subscription(app: &Halo) -> Option<Subscription<Message>> {
 
 fn open_url(url: String) -> Task<Message> {
     Task::perform(
-        async move { tokio::task::spawn_blocking(move || open::that(url)).await },
+        async move { tokio::task::spawn_blocking(move || crate::open_url(&url)).await },
         |r| match r {
             Ok(Ok(())) => Message::Noop,
             Ok(Err(e)) => err(e.to_string()),

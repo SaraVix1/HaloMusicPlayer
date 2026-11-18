@@ -213,6 +213,16 @@ Saves multiply by the same scale and clamp again; a window dropped outside the w
 
 ---
 
+## Wayland: no hiding, no always-on-top, no positioning, so Halo runs under XWayland
+
+**Symptom.** On a Wayland session (MX / Debian KDE Plasma, GNOME), opening the mini player leaves the main window on screen, the mini player isn't kept above other windows and ignores its saved position, and close-to-tray doesn't hide.
+
+**Cause.** Wayland gives clients no way to do those things, and winit 0.30's Wayland backend makes `set_visible`, `set_window_level` and `set_outer_position` no-ops. winit picks Wayland whenever `WAYLAND_DISPLAY` is set. (The Tauri build hid windows through GTK, which unmaps the surface on Wayland.)
+
+**Fix.** `prefer_x11()`, first thing in [crates/halo-app/src/main.rs](../crates/halo-app/src/main.rs), removes `WAYLAND_DISPLAY` / `WAYLAND_SOCKET` when `DISPLAY` is set, so winit (and GTK for the tray) use X11 through XWayland, where KWin and Mutter honour unmapping, `_NET_WM_STATE_ABOVE` and window positions. It must run before any thread starts. `HALO_WAYLAND=1` keeps native Wayland, accepting the limits above. Programs Halo launches get the original `WAYLAND_DISPLAY` back through `crate::open_url`; use it instead of `open::that`. Trade-off: on a fractionally scaled GNOME display XWayland windows may look soft.
+
+---
+
 ## MPRIS `desktop_entry` must match the installed `.desktop` basename
 
 **Symptom.** GNOME Shell's media widget shows a generic icon for Halo.
@@ -272,6 +282,7 @@ Saves multiply by the same scale and clamp again; a window dropped outside the w
 - There is no window manager, so X focus isn't given to the window: run `xdotool windowfocus <wid>` before typing.
 - No sound card: create `~/.asoundrc` with `pcm.!default { type null }`. The null device consumes audio **much faster than real time**, so tracks end in a second or two — pause playback before testing anything that resets on track change (e.g. the lyrics editor).
 - Set `XDG_RUNTIME_DIR` to an existing 0700 directory.
+- **With a real window manager (KWin):** run a copy of `kwin_wayland` (the original has `cap_sys_nice`, which a sandbox won't execute) as `kwin_wayland --virtual --xwayland --no-lockscreen --exit-with-session script.sh` inside `unshare -r -n -m` + `dbus-run-session`. In the namespace, mount a tmpfs on `/tmp/.X11-unix` first (KWin refuses a socket dir it doesn't own). `-n` also keeps the abstract single-instance socket away from a running Halo. Keep `XDG_RUNTIME_DIR` short: the Wayland socket path must fit in 108 bytes. The script then sees `DISPLAY` and can use `xdotool`, `xprop` and `xwininfo` (e.g. `Map State`, `_NET_WM_STATE_ABOVE`).
 
 ---
 
