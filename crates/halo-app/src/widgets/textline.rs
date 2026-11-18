@@ -14,7 +14,7 @@
 use std::time::Instant;
 
 use iced::advanced::layout::{self, Layout};
-use iced::advanced::renderer::{self, Renderer as _};
+use iced::advanced::renderer;
 use iced::advanced::text::{self, paragraph, Paragraph as _, Renderer as _};
 use iced::advanced::widget::{self, tree, Tree, Widget};
 use iced::advanced::{Clipboard, Shell};
@@ -307,6 +307,11 @@ impl<'a, Message> Widget<Message, iced::Theme, iced::Renderer> for TextLine<'a> 
             return;
         }
         let color = self.color.unwrap_or(style.text_color);
+        // Clip to our bounds within the parent's visible area (a layer would
+        // escape the parent's clip, e.g. a scrollable).
+        let Some(clip) = bounds.intersection(viewport) else {
+            return;
+        };
 
         match self.overflow {
             Overflow::Ellipsis if state.truncated.is_some() => {
@@ -314,18 +319,16 @@ impl<'a, Message> Widget<Message, iced::Theme, iced::Renderer> for TextLine<'a> 
                     state.truncated.as_ref().unwrap(),
                     bounds.position(),
                     color,
-                    bounds,
+                    clip,
                 );
             }
             Overflow::Marquee | Overflow::Loop if state.full_width > bounds.width + 0.5 => {
-                renderer.with_layer(bounds, |r| {
-                    let p = Point::new(bounds.x - state.offset, bounds.y);
-                    r.fill_paragraph(state.full.raw(), p, color, bounds);
-                    if self.overflow == Overflow::Loop {
-                        let p2 = Point::new(p.x + state.full_width + 48.0, bounds.y);
-                        r.fill_paragraph(state.full.raw(), p2, color, bounds);
-                    }
-                });
+                let p = Point::new(bounds.x - state.offset, bounds.y);
+                renderer.fill_paragraph(state.full.raw(), p, color, clip);
+                if self.overflow == Overflow::Loop {
+                    let p2 = Point::new(p.x + state.full_width + 48.0, bounds.y);
+                    renderer.fill_paragraph(state.full.raw(), p2, color, clip);
+                }
             }
             _ => {
                 let x = if self.align_right {
@@ -333,9 +336,7 @@ impl<'a, Message> Widget<Message, iced::Theme, iced::Renderer> for TextLine<'a> 
                 } else {
                     bounds.x
                 };
-                renderer.with_layer(bounds, |r| {
-                    r.fill_paragraph(state.full.raw(), Point::new(x, bounds.y), color, bounds);
-                });
+                renderer.fill_paragraph(state.full.raw(), Point::new(x, bounds.y), color, clip);
             }
         }
     }

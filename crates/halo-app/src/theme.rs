@@ -98,14 +98,14 @@ pub const GRADIENTS: [(Color, Color); 7] = [
     (hex(0x00b8db), hex(0x2b7fff)), // cyan → blue
 ];
 
-/// `h = h*31 + charCode` (JS 32-bit int arithmetic) mod 7 — same card colour
+/// `h = (h*31 + charCode) >>> 0` (unsigned 32-bit) mod 7 — same card colour
 /// for the same name as the React UI.
 pub fn gradient_for(name: &str) -> (Color, Color) {
-    let mut h: i32 = 0;
+    let mut h: u32 = 0;
     for u in name.encode_utf16() {
-        h = h.wrapping_mul(31).wrapping_add(u as i32);
+        h = h.wrapping_mul(31).wrapping_add(u as u32);
     }
-    GRADIENTS[(h.unsigned_abs() as usize) % GRADIENTS.len()]
+    GRADIENTS[(h as usize) % GRADIENTS.len()]
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────────
