@@ -8,7 +8,11 @@ Keep entries short. Link to the full spec rather than duplicating it.
 
 ## In Progress
 
-- **iced port** — Tauri v2 + React replaced by a native iced 0.14 UI on branch `iced-port`: `crates/halo-backend` (Tauri-free backend) + `crates/halo-app` (UI, one file per page/tab), cargo-packager installers. Remaining: verify media keys / tray / file associations on Windows & macOS hardware; macOS "Open with" while running (no iced API yet).
+- **iced port** — Tauri v2 + React replaced by a native iced 0.14 UI on branch `iced-port`: `crates/halo-backend` (Tauri-free backend) + `crates/halo-app` (UI, one file per page/tab), cargo-packager installers (+ `.rpm` via cargo-generate-rpm). Linux targets Debian 12 + 13 (packages built on bookworm; release install-tests the `.deb` on both). CI green on Debian 12 / 13 / Windows.
+  - Fixed after the `v0.1.3-iced-port.12` test, **not yet re-tested on real hardware**: tray menu actions (channel created too late); mini player off-screen at 125 % on Windows (saved position is physical px — HAZARDS); mini snaps back into the work area after a drag; close-to-tray minimizes when no tray exists (plain GNOME).
+  - Next: run Release from `iced-port` (first run of the Debian-container build + Debian 12/13 `.deb` test + RPM), then check on Windows 125 % (mini player, tray), KDE / GNOME (tray), Debian (`.deb` install).
+  - Open question: CI compiles on both Debian 12 and 13 — keep, or compile on 12 only plus a quick Debian 13 dependency-name check?
+  - Still unverified: media keys / file associations on Windows & macOS hardware; macOS "Open with" while running (no iced API yet).
 
 <!--
 Template:
