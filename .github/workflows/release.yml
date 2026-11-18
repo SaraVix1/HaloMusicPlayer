@@ -24,6 +24,10 @@ on:
         description: 'Linux — AppImage'
         type: boolean
         default: true
+      linux_rpm:
+        description: 'Linux — .rpm (Fedora, openSUSE, …)'
+        type: boolean
+        default: true
       linux_pacman:
         description: 'Linux — Arch package (.tar.gz + PKGBUILD)'
         type: boolean
@@ -38,6 +42,7 @@ permissions:
 
 jobs:
   create-release:
+    name: Prepare release
     runs-on: ubuntu-latest
     outputs:
       release_id: ${{ steps.create-release.outputs.result && fromJSON(steps.create-release.outputs.result).id }}
@@ -46,8 +51,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       # Turn the package checkboxes into the build matrix: one entry per OS
-      # with at least one package selected. Runs before the release is
-      # created, so selecting nothing fails without leaving an empty draft.
+      # with at least one package selected, named after its packages
+      # ("Linux · DEB + AppImage + RPM"). Runs before the release is created,
+      # so selecting nothing fails without leaving an empty draft.
+      # `formats` are cargo-packager formats; `rpm` is built separately with
+      # cargo-generate-rpm (cargo-packager has no rpm format).
       - name: Plan packages
         id: plan
         uses: actions/github-script@v8
@@ -55,37 +63,54 @@ jobs:
           script: |
             const defaults = {
               windows_nsis: true, windows_msi: true,
-              linux_deb: true, linux_appimage: true, linux_pacman: false,
+              linux_deb: true, linux_appimage: true, linux_rpm: true, linux_pacman: false,
               macos_dmg: true,
             }
             const inputs = context.payload.inputs || {}
             // workflow_dispatch inputs arrive as booleans or 'true'/'false'.
             const on = (k) => (k in inputs ? String(inputs[k]) === 'true' : defaults[k])
             const include = []
-            const add = (platform, formats) => {
-              if (formats.length) include.push({ platform, formats: formats.join(',') })
+            // packages: [input, cargo-packager formats, label]; rpm has no
+            // packager format and is flagged separately.
+            const add = (os, platform, packages) => {
+              const picked = packages.filter(([k]) => on(k))
+              if (!picked.length) return
+              include.push({
+                name: `${os} · ${picked.map(([, , label]) => label).join(' + ')}`,
+                platform,
+                formats: picked.flatMap(([, f]) => f).join(','),
+                rpm: picked.some(([k]) => k === 'linux_rpm'),
+              })
             }
-            add('windows-latest', [on('windows_nsis') && 'nsis', on('windows_msi') && 'wix'].filter(Boolean))
-            add('ubuntu-22.04', [
-              on('linux_deb') && 'deb',
-              on('linux_appimage') && 'appimage',
-              on('linux_pacman') && 'pacman',
-            ].filter(Boolean))
+            add('Windows', 'windows-latest', [
+              ['windows_nsis', ['nsis'], 'Setup .exe'],
+              ['windows_msi', ['wix'], 'MSI'],
+            ])
+            add('Linux', 'ubuntu-22.04', [
+              ['linux_deb', ['deb'], 'DEB'],
+              ['linux_appimage', ['appimage'], 'AppImage'],
+              ['linux_rpm', [], 'RPM'],
+              ['linux_pacman', ['pacman'], 'Arch'],
+            ])
             // The .dmg is built from the .app bundle.
-            add('macos-latest', on('macos_dmg') ? ['app', 'dmg'] : [])
+            add('macOS', 'macos-latest', [['macos_dmg', ['app', 'dmg'], 'Universal DMG']])
             if (!include.length) {
               core.setFailed('No packages selected — tick at least one package.')
               return
             }
-            core.info(`Building: ${include.map((e) => `${e.platform} [${e.formats}]`).join(', ')}`)
+            core.info(`Building: ${include.map((e) => e.name).join(', ')}`)
             return { include }
       # What gets released:
       # - a v* tag push releases that tag;
       # - a manual run from main releases the current version: it creates the
       #   tag v<[workspace.package] version> on this commit;
+      # Both are full releases marked "Latest" (named "(Beta)") — GitHub's
+      # repo sidebar only shows a release that is "Latest", never a
+      # pre-release.
       # - a manual run from any other branch releases a branch build: it
       #   creates the semver pre-release tag v<version>-<branch>.<run number>
-      #   (e.g. v0.1.3-iced-port.12) on this commit, never marked "Latest".
+      #   (e.g. v0.1.3-iced-port.12) on this commit; always a pre-release,
+      #   never marked "Latest".
       - name: Create draft release
         id: create-release
         uses: actions/github-script@v8
@@ -144,14 +169,16 @@ jobs:
                 ? `Branch build of \`${context.ref.replace('refs/heads/', '')}\` at ${context.sha.slice(0, 7)} — for testing; not a regular release.`
                 : undefined,
               draft: true,
-              // Halo is in beta — publish every release as a pre-release
-              prerelease: true,
-              // Branch builds must never become the "Latest" release.
-              make_latest: branchBuild ? 'false' : 'legacy',
+              // Branch builds are test builds: pre-release, never "Latest".
+              // Regular releases are full releases so the repo sidebar shows
+              // them; "(Beta)" in the name marks the beta status instead.
+              prerelease: branchBuild,
+              make_latest: branchBuild ? 'false' : 'true',
             })
             return { id: data.id, tag }
 
   build:
+    name: ${{ matrix.name }}
     needs: create-release
     strategy:
       fail-fast: false
@@ -193,7 +220,12 @@ jobs:
           workspaces: '. -> target'
 
       - name: Install cargo-packager
+        if: matrix.formats != ''
         run: cargo install cargo-packager --version 0.11.8 --locked
+
+      - name: Install cargo-generate-rpm
+        if: matrix.rpm
+        run: cargo install cargo-generate-rpm --version 0.21.1 --locked
 
       - name: Build (Windows / Linux)
         if: runner.os != 'macOS'
@@ -210,7 +242,12 @@ jobs:
             target/x86_64-apple-darwin/release/halo
 
       - name: Package
+        if: matrix.formats != ''
         run: cargo packager --release -p halo --formats ${{ matrix.formats }}
+
+      - name: Package RPM
+        if: matrix.rpm
+        run: cargo generate-rpm -p crates/halo-app
 
       - name: Upload release assets
         shell: bash
@@ -218,7 +255,7 @@ jobs:
           shopt -s nullglob
           files=(target/release/*.exe target/release/*.msi target/release/*.deb \
                  target/release/*.AppImage target/release/*.dmg \
-                 target/release/halo_*.tar.gz)
+                 target/release/halo_*.tar.gz target/generate-rpm/*.rpm)
           # Arch package: upload its PKGBUILD alongside the archive.
           [[ "${{ matrix.formats }}" == *pacman* && -f target/release/PKGBUILD ]] && files+=(target/release/PKGBUILD)
           # Keep the main binary out of the upload on Windows (halo.exe).
@@ -235,6 +272,7 @@ jobs:
           gh release upload "${{ needs.create-release.outputs.tag }}" "${upload[@]}" --clobber
 
   publish-release:
+    name: Publish release
     needs: [create-release, build]
     runs-on: ubuntu-latest
     steps:

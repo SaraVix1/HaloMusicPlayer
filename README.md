@@ -1,6 +1,6 @@
 # Halo Music Player
 
-> **Beta:** Halo is currently in beta. Releases are published as GitHub pre-releases — expect rough edges, and please report any bugs you hit.
+> **Beta:** Halo is currently in beta. Releases are labelled "(Beta)" — expect rough edges, and please report any bugs you hit.
 
 Halo is a fast, native desktop music player for your local library, written entirely in Rust (UI built with [iced](https://iced.rs)). Point it at your music folders and get a clean, modern player with gapless-feeling playback, a full equalizer, lyrics, smart playlists, and Last.fm scrobbling — all running offline against your own files.
 
@@ -54,7 +54,7 @@ Halo currently runs on **Windows, macOS, and Linux**. Mobile (Android/iOS) suppo
 
 ## Installing
 
-Beta installers for Windows (setup `.exe` and `.msi`), macOS (universal `.dmg`), and Linux (`.AppImage`, `.deb`) are published on the [Releases](https://github.com/SaraVix1/HaloMusicPlayer/releases) page, marked as pre-releases. You can also build Halo from source — see [Building from source](#building-from-source) below.
+Beta installers for Windows (setup `.exe` and `.msi`), macOS (universal `.dmg`), and Linux (`.AppImage`, `.deb`, `.rpm`) are published on the [Releases](https://github.com/SaraVix1/HaloMusicPlayer/releases) page; the newest regular release is marked "Latest". You can also build Halo from source — see [Building from source](#building-from-source) below.
 
 ### Versioning
 
@@ -64,7 +64,7 @@ To publish a release, open **Actions → Release → Run workflow** on `main`. I
 
 To publish a test build from any other branch, pick that branch in **Run workflow**. It is released as `v<version>-<branch>.<run number>` (for example `v0.1.3-iced-port.12`), a pre-release that never becomes "Latest".
 
-**Run workflow** also shows a checkbox per package — Windows setup `.exe` / `.msi`, Linux `.deb` / AppImage / Arch package, macOS `.dmg` — so you can build only what you need. Only the operating systems with a ticked package are built. Pushing a `v*` tag builds everything except the Arch package.
+**Run workflow** also shows a checkbox per package — Windows setup `.exe` / `.msi`, Linux `.deb` / AppImage / `.rpm` / Arch package, macOS `.dmg` — so you can build only what you need. Only the operating systems with a ticked package are built. Pushing a `v*` tag builds everything except the Arch package.
 
 ## Building from source
 
@@ -88,7 +88,14 @@ cargo install cargo-packager --locked
 cargo packager --release -p halo
 ```
 
-Installers are written to `target/release/`.
+Installers are written to `target/release/`. For an `.rpm` (Fedora, openSUSE, …), after the release build:
+
+```bash
+cargo install cargo-generate-rpm --locked
+cargo generate-rpm -p crates/halo-app
+```
+
+It is written to `target/generate-rpm/`.
 
 ## Getting started
 

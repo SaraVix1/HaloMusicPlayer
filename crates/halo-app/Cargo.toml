@@ -70,3 +70,44 @@ depends = ["libasound2", "libgtk-3-0", "libayatana-appindicator3-1", "libxdo3"]
 
 [package.metadata.packager.nsis]
 installMode = "currentUser"
+
+# ── RPM (cargo-generate-rpm; cargo-packager has no rpm format) ────────────────
+# `cargo install cargo-generate-rpm --locked`, then from the repo root:
+#   cargo build --release -p halo && cargo generate-rpm -p crates/halo-app
+# Output: target/generate-rpm/halo-<version>-1.x86_64.rpm. Same files as the
+# .deb; linux/rpm/halo.desktop is the rendered linux/halo.desktop.hbs — keep
+# the two in sync.
+#
+# Requirements are the binary's direct NEEDED libraries (`readelf -d`) plus
+# the ones winit loads at runtime, named by soname so any RPM distro
+# (Fedora, openSUSE, …) resolves them. auto-req is off: it walks ldd's full
+# transitive list, which bakes in build-host sonames (e.g. Ubuntu's
+# libjpeg.so.8) that other distros don't ship. The tray's appindicator
+# library is loaded at runtime and optional, so it is only recommended.
+[package.metadata.generate-rpm]
+name = "halo"
+summary = "Halo Music Player — a desktop music player"
+# The repository has no licence file, so the RPM says so; change this if one
+# is added (and set `license` in [workspace.package]).
+license = "Proprietary"
+auto-req = "disabled"
+assets = [
+    { source = "target/release/halo", dest = "/usr/bin/halo", mode = "755" },
+    { source = "linux/rpm/halo.desktop", dest = "/usr/share/applications/halo.desktop", mode = "644" },
+    { source = "assets/icons/32x32.png", dest = "/usr/share/icons/hicolor/32x32/apps/halo.png", mode = "644" },
+    { source = "assets/icons/64x64.png", dest = "/usr/share/icons/hicolor/64x64/apps/halo.png", mode = "644" },
+    { source = "assets/icons/128x128.png", dest = "/usr/share/icons/hicolor/128x128/apps/halo.png", mode = "644" },
+    { source = "assets/icons/128x128@2x.png", dest = "/usr/share/icons/hicolor/256x256/apps/halo.png", mode = "644" },
+    { source = "assets/icons/icon.png", dest = "/usr/share/icons/hicolor/512x512/apps/halo.png", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+"libasound.so.2()(64bit)" = "*"
+"libdbus-1.so.3()(64bit)" = "*"
+"libgtk-3.so.0()(64bit)" = "*"
+"libxdo.so.3()(64bit)" = "*"
+"libxkbcommon.so.0()(64bit)" = "*"
+"libxkbcommon-x11.so.0()(64bit)" = "*"
+
+[package.metadata.generate-rpm.recommends]
+libayatana-appindicator-gtk3 = "*"

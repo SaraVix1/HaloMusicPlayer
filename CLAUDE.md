@@ -28,12 +28,14 @@ cargo clippy --workspace          # lint
 # Installers (cargo install cargo-packager --locked)
 cargo packager --release -p halo                      # all formats for this OS
 cargo packager --release -p halo --formats deb,appimage
+# RPM (cargo-packager has none; cargo install cargo-generate-rpm --locked)
+cargo generate-rpm -p crates/halo-app             # → target/generate-rpm/*.rpm
 
 # Set the version by hand (root Cargo.toml [workspace.package] + Cargo.lock)
 python3 scripts/bump-version.py <version>
 ```
 
-**Versioning:** Halo is in beta. `.github/workflows/bump-version.yml` bumps the patch version on every push to `main` (skipped when the commit title contains `[skip bump]`); `release.yml` builds installers with cargo-packager and publishes a "(Beta)" pre-release for a pushed `v*` tag, or — when run manually from `main` — for `v<current version>`, creating that tag. A manual run from any other branch publishes a branch build tagged `v<version>-<branch>.<run number>` (pre-release, never "Latest"). Manual runs have one checkbox per package (`windows_nsis`, `windows_msi`, `linux_deb`, `linux_appimage`, `linux_pacman`, `macos_dmg`); the "Plan packages" step turns them into the build matrix, so only OSes with a ticked package run. Tag pushes use the defaults (all but pacman).
+**Versioning:** Halo is in beta. `.github/workflows/bump-version.yml` bumps the patch version on every push to `main` (skipped when the commit title contains `[skip bump]`); `release.yml` builds installers with cargo-packager (plus the `.rpm` with cargo-generate-rpm) and publishes a "(Beta)" release marked "Latest" for a pushed `v*` tag, or — when run manually from `main` — for `v<current version>`, creating that tag. (Not a pre-release: the repo sidebar only shows the "Latest" release.) A manual run from any other branch publishes a branch build tagged `v<version>-<branch>.<run number>` (pre-release, never "Latest"). Manual runs have one checkbox per package (`windows_nsis`, `windows_msi`, `linux_deb`, `linux_appimage`, `linux_rpm`, `linux_pacman`, `macos_dmg`); the "Plan packages" step turns them into the build matrix (jobs named like "Linux · DEB + AppImage + RPM"), so only OSes with a ticked package run. Tag pushes use the defaults (all but pacman).
 
 ## Architecture
 
@@ -64,10 +66,12 @@ crates/
 │                               # mini (mini-player prefs)
 └── halo-app/                   # The iced application, package/binary `halo`
     ├── Cargo.toml              # deps + [package.metadata.packager] (installers, file associations)
+    │                           # + [package.metadata.generate-rpm] (.rpm)
     ├── build.rs                # embeds icon.ico on Windows
     ├── assets/                 # fonts (Geist, Geist Mono, lucide.ttf), lucide SVGs (filled variants,
     │                           # spinners), app icons
     ├── linux/halo.desktop.hbs  # deb desktop template (MimeType, StartupWMClass)
+    ├── linux/rpm/halo.desktop  # the same, rendered, for the .rpm — keep in sync
     └── src/
         ├── main.rs             # AUMID → single-instance forward → Backend::start → iced::daemon
         ├── app.rs              # Halo state, Message, update, view per window, subscriptions, window
