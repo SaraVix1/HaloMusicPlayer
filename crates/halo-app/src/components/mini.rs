@@ -36,6 +36,11 @@ pub struct State {
     expand_dragged: bool,
     move_token: u64,
     pending_pos: Option<Point>,
+    /// Waiting for the main window's scale factor before opening.
+    opening: bool,
+    /// Scale factor the window was opened with: positions are stored in
+    /// physical pixels (as the Tauri build did) but iced works in logical.
+    scale: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -51,6 +56,8 @@ pub enum Msg {
     ExpandMove(Point),
     ExpandRelease,
     SavePos(u64),
+    /// Second half of [`open`]: the main window's scale factor arrived.
+    OpenWith(f32),
 }
 
 fn mm(m: Msg) -> Message {
@@ -62,14 +69,32 @@ fn bottom_right(win: Size, monitor: Size) -> Point {
     Point::new(monitor.width - win.width - 8.0, monitor.height - win.height - 56.0)
 }
 
-/// Open the mini window (or focus it if it's already open).
+/// Open the mini window (or focus it if it's already open). The saved
+/// position is in physical pixels, so first fetch the display scale factor
+/// (from the main window) and open in [`open_with`].
 pub fn open(app: &mut Halo) -> Task<Message> {
     if let Some(id) = app.mini_id {
         return window::gain_focus(id);
     }
+    if app.mini.opening {
+        return Task::none();
+    }
+    app.mini.opening = true;
+    match app.main_id {
+        Some(main) => window::scale_factor(main).map(|s| mm(Msg::OpenWith(s))),
+        None => Task::done(mm(Msg::OpenWith(1.0))),
+    }
+}
+
+fn open_with(app: &mut Halo, scale: f32) -> Task<Message> {
+    if let Some(id) = app.mini_id {
+        return window::gain_focus(id);
+    }
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
     let aot = prefs::always_on_top(app.backend.db());
-    let position = match prefs::read_position(app.backend.db()) {
-        Some((x, y)) => window::Position::Specific(Point::new(x as f32, y as f32)),
+    let phys = |v: f32| (v * scale).round() as i32;
+    let position = match prefs::open_position_physical(app.backend.db(), phys(W), phys(H), phys(8.0)) {
+        Some((x, y)) => window::Position::Specific(Point::new(x as f32 / scale, y as f32 / scale)),
         None if cfg!(target_os = "macos") => window::Position::Centered,
         None => window::Position::SpecificWith(bottom_right),
     };
@@ -80,8 +105,9 @@ pub fn open(app: &mut Halo) -> Task<Message> {
         position,
         resizable: false,
         decorations: false,
-        // Lets GTK/Wayland honour a 30px tall window.
-        transparent: true,
+        // Lets GTK/Wayland honour a 30px tall window. Linux only: on Windows
+        // a transparent wgpu surface can leave the window invisible.
+        transparent: cfg!(target_os = "linux"),
         level: if aot { window::Level::AlwaysOnTop } else { window::Level::Normal },
         exit_on_close_request: false,
         icon: crate::app_icon(),
@@ -100,7 +126,10 @@ pub fn open(app: &mut Halo) -> Task<Message> {
     };
     let (id, task) = window::open(settings);
     app.mini_id = Some(id);
-    app.mini = State::default();
+    app.mini = State {
+        scale,
+        ..State::default()
+    };
     // Wayland may map the window after `open`; re-apply always-on-top a few
     // times (the old Tauri build retried at ~100ms–2s for the same reason).
     let level = if aot { window::Level::AlwaysOnTop } else { window::Level::Normal };
@@ -182,8 +211,13 @@ pub fn update(app: &mut Halo, m: Msg) -> Task<Message> {
                 return Task::none();
             }
             let Some(p) = st.pending_pos.take() else { return Task::none() };
-            let (x, y) = (p.x.round() as i32, p.y.round() as i32);
+            let scale = if st.scale > 0.0 { st.scale } else { 1.0 };
+            let (x, y) = ((p.x * scale).round() as i32, (p.y * scale).round() as i32);
             crate::app::fire(&app.backend, move |b| prefs::save_position(b.db(), x, y))
+        }
+        Msg::OpenWith(scale) => {
+            st.opening = false;
+            open_with(app, scale)
         }
     }
 }

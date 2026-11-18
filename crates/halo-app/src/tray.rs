@@ -137,6 +137,10 @@ pub fn create() {
 /// Tray actions as a subscription.
 pub fn events() -> Subscription<TrayAction> {
     Subscription::run(|| {
+        // The subscription starts before the tray is created (on the main
+        // window's first `Opened`), so make sure the channel exists first —
+        // otherwise there is no receiver to take and every tray action is lost.
+        let _ = channel();
         let rx = RX.lock().ok().and_then(|mut g| g.take());
         iced::stream::channel(16, async move |mut out| {
             use iced::futures::SinkExt;

@@ -177,6 +177,30 @@ Each entry: **symptom → cause → fix**.
 
 ---
 
+## Tray actions are lost if `tray::events()` starts before the channel exists
+
+**Symptom.** The tray icon and menu appear, but clicking Play/Pause, Show Halo, Mini player or Quit does nothing.
+
+**Cause.** `tray::events()` takes the receiver out of a static once, when iced starts the subscription — which is *before* `tray::create()` runs (on the main window's first `WindowOpened`). If the channel didn't exist yet, the stream got `None`, idled forever, and iced never rebuilds a subscription whose identity didn't change.
+
+**Fix.** `events()` calls `channel()` before taking the receiver ([crates/halo-app/src/tray.rs](../crates/halo-app/src/tray.rs)). Whatever runs first creates the channel.
+
+---
+
+## Mini player position is stored in physical pixels; iced positions are logical
+
+**Symptom.** The mini player "doesn't open": the main window hides but no mini window is visible (it's off-screen), typically on a scaled (125–200 %) display or after unplugging a monitor.
+
+**Cause.** `mini.pos.x/y` in `app_state` are **physical** pixels — the Tauri build saved them that way and the DB is shared. iced's `window::Position::Specific` and `window::Event::Moved` are **logical**. Reading physical values as logical pushes the window past the screen edge by the scale factor.
+
+**Fix.** [crates/halo-app/src/components/mini.rs](../crates/halo-app/src/components/mini.rs) opens in two steps:
+1. Fetch `window::scale_factor(main)`.
+2. `commands::mini::open_position_physical` clamps the saved physical position into the nearest monitor's work area (Win32 `MonitorFromPoint` + `GetMonitorInfoW`), and the result is divided by the scale.
+
+Saves multiply by the same scale. `transparent: true` is set only on Linux (it lets GTK honour the 30 px height); on Windows a transparent wgpu surface can leave the window blank.
+
+---
+
 ## MPRIS `desktop_entry` must match the installed `.desktop` basename
 
 **Symptom.** GNOME Shell's media widget shows a generic icon for Halo.
