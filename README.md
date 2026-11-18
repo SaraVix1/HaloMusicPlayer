@@ -64,6 +64,8 @@ To publish a release, open **Actions → Release → Run workflow** on `main`. I
 
 To publish a test build from any other branch, pick that branch in **Run workflow**. It is released as `v<version>-<branch>.<run number>` (for example `v0.1.3-iced-port.12`), a pre-release that never becomes "Latest".
 
+**Run workflow** also shows a checkbox per package — Windows setup `.exe` / `.msi`, Linux `.deb` / AppImage / Arch package, macOS `.dmg` — so you can build only what you need. Only the operating systems with a ticked package are built. Pushing a `v*` tag builds everything except the Arch package.
+
 ## Building from source
 
 ### Prerequisites

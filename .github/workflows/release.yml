@@ -4,7 +4,34 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual runs show one checkbox per package; tag pushes build the
+  # defaults (everything except the Arch package).
   workflow_dispatch:
+    inputs:
+      windows_nsis:
+        description: 'Windows — setup .exe (NSIS)'
+        type: boolean
+        default: true
+      windows_msi:
+        description: 'Windows — .msi (WiX)'
+        type: boolean
+        default: true
+      linux_deb:
+        description: 'Linux — .deb'
+        type: boolean
+        default: true
+      linux_appimage:
+        description: 'Linux — AppImage'
+        type: boolean
+        default: true
+      linux_pacman:
+        description: 'Linux — Arch package (.tar.gz + PKGBUILD)'
+        type: boolean
+        default: false
+      macos_dmg:
+        description: 'macOS — universal .dmg (Intel + Apple Silicon)'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -15,8 +42,43 @@ jobs:
     outputs:
       release_id: ${{ steps.create-release.outputs.result && fromJSON(steps.create-release.outputs.result).id }}
       tag: ${{ steps.create-release.outputs.result && fromJSON(steps.create-release.outputs.result).tag }}
+      matrix: ${{ steps.plan.outputs.result }}
     steps:
       - uses: actions/checkout@v5
+      # Turn the package checkboxes into the build matrix: one entry per OS
+      # with at least one package selected. Runs before the release is
+      # created, so selecting nothing fails without leaving an empty draft.
+      - name: Plan packages
+        id: plan
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const defaults = {
+              windows_nsis: true, windows_msi: true,
+              linux_deb: true, linux_appimage: true, linux_pacman: false,
+              macos_dmg: true,
+            }
+            const inputs = context.payload.inputs || {}
+            // workflow_dispatch inputs arrive as booleans or 'true'/'false'.
+            const on = (k) => (k in inputs ? String(inputs[k]) === 'true' : defaults[k])
+            const include = []
+            const add = (platform, formats) => {
+              if (formats.length) include.push({ platform, formats: formats.join(',') })
+            }
+            add('windows-latest', [on('windows_nsis') && 'nsis', on('windows_msi') && 'wix'].filter(Boolean))
+            add('ubuntu-22.04', [
+              on('linux_deb') && 'deb',
+              on('linux_appimage') && 'appimage',
+              on('linux_pacman') && 'pacman',
+            ].filter(Boolean))
+            // The .dmg is built from the .app bundle.
+            add('macos-latest', on('macos_dmg') ? ['app', 'dmg'] : [])
+            if (!include.length) {
+              core.setFailed('No packages selected — tick at least one package.')
+              return
+            }
+            core.info(`Building: ${include.map((e) => `${e.platform} [${e.formats}]`).join(', ')}`)
+            return { include }
       # What gets released:
       # - a v* tag push releases that tag;
       # - a manual run from main releases the current version: it creates the
@@ -93,17 +155,8 @@ jobs:
     needs: create-release
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # Windows: NSIS setup .exe + MSI
-          - platform: windows-latest
-            formats: nsis,wix
-          # Linux: .deb + AppImage
-          - platform: ubuntu-22.04
-            formats: deb,appimage
-          # macOS: universal (Intel + Apple Silicon) .app + .dmg
-          - platform: macos-latest
-            formats: app,dmg
+      # Chosen in the "Plan packages" step: entries of {platform, formats}.
+      matrix: ${{ fromJSON(needs.create-release.outputs.matrix) }}
 
     runs-on: ${{ matrix.platform }}
     env:
@@ -164,7 +217,10 @@ jobs:
         run: |
           shopt -s nullglob
           files=(target/release/*.exe target/release/*.msi target/release/*.deb \
-                 target/release/*.AppImage target/release/*.dmg)
+                 target/release/*.AppImage target/release/*.dmg \
+                 target/release/halo_*.tar.gz)
+          # Arch package: upload its PKGBUILD alongside the archive.
+          [[ "${{ matrix.formats }}" == *pacman* && -f target/release/PKGBUILD ]] && files+=(target/release/PKGBUILD)
           # Keep the main binary out of the upload on Windows (halo.exe).
           upload=()
           for f in "${files[@]}"; do
