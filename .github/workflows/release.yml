@@ -47,7 +47,8 @@ jobs:
     outputs:
       release_id: ${{ steps.create-release.outputs.result && fromJSON(steps.create-release.outputs.result).id }}
       tag: ${{ steps.create-release.outputs.result && fromJSON(steps.create-release.outputs.result).tag }}
-      matrix: ${{ steps.plan.outputs.result }}
+      matrix: ${{ steps.plan.outputs.result && toJSON(fromJSON(steps.plan.outputs.result).matrix) }}
+      deb: ${{ steps.plan.outputs.result && fromJSON(steps.plan.outputs.result).deb }}
     steps:
       - uses: actions/checkout@v5
       # Turn the package checkboxes into the build matrix: one entry per OS
@@ -72,12 +73,15 @@ jobs:
             const include = []
             // packages: [input, cargo-packager formats, label]; rpm has no
             // packager format and is flagged separately.
-            const add = (os, platform, packages) => {
+            // `container` runs the job in that image ('' = on the runner).
+            const add = (os, platform, packages, container = '') => {
               const picked = packages.filter(([k]) => on(k))
               if (!picked.length) return
               include.push({
                 name: `${os} · ${picked.map(([, , label]) => label).join(' + ')}`,
+                slug: os.toLowerCase(),
                 platform,
+                container,
                 formats: picked.flatMap(([, f]) => f).join(','),
                 rpm: picked.some(([k]) => k === 'linux_rpm'),
               })
@@ -86,12 +90,14 @@ jobs:
               ['windows_nsis', ['nsis'], 'Setup .exe'],
               ['windows_msi', ['wix'], 'MSI'],
             ])
-            add('Linux', 'ubuntu-22.04', [
+            // Linux packages are built on Debian 12 (bookworm), the oldest
+            // supported Debian: its glibc 2.36 binary also runs on Debian 13.
+            add('Linux', 'ubuntu-latest', [
               ['linux_deb', ['deb'], 'DEB'],
               ['linux_appimage', ['appimage'], 'AppImage'],
               ['linux_rpm', [], 'RPM'],
               ['linux_pacman', ['pacman'], 'Arch'],
-            ])
+            ], 'debian:bookworm')
             // The .dmg is built from the .app bundle.
             add('macOS', 'macos-latest', [['macos_dmg', ['app', 'dmg'], 'Universal DMG']])
             if (!include.length) {
@@ -99,7 +105,8 @@ jobs:
               return
             }
             core.info(`Building: ${include.map((e) => e.name).join(', ')}`)
-            return { include }
+            // `deb` gates the Debian install test.
+            return { matrix: { include }, deb: on('linux_deb') }
       # What gets released:
       # - a v* tag push releases that tag;
       # - a manual run from main releases the current version: it creates the
@@ -182,21 +189,24 @@ jobs:
     needs: create-release
     strategy:
       fail-fast: false
-      # Chosen in the "Plan packages" step: entries of {platform, formats}.
+      # Chosen in the "Plan packages" step: entries of
+      # {name, slug, platform, container, formats, rpm}.
       matrix: ${{ fromJSON(needs.create-release.outputs.matrix) }}
 
     runs-on: ${{ matrix.platform }}
+    # Linux: debian:bookworm. Windows / macOS: '' = directly on the runner.
+    container: ${{ matrix.container }}
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # AppImage tooling is itself an AppImage; containers have no FUSE.
+      APPIMAGE_EXTRACT_AND_RUN: 1
     steps:
-      - uses: actions/checkout@v5
-
+      # Before checkout, so checkout finds git (the image has none).
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git build-essential pkg-config file xz-utils \
             libasound2-dev \
             libdbus-1-dev \
             libxkbcommon-dev \
@@ -206,8 +216,9 @@ jobs:
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             libxdo-dev \
-            libfuse2 \
-            file
+            libfuse2
+
+      - uses: actions/checkout@v5
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -218,6 +229,8 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: '. -> target'
+          # Keep the Debian container's cache apart from runner builds.
+          key: ${{ matrix.container || matrix.platform }}
 
       - name: Install cargo-packager
         if: matrix.formats != ''
@@ -245,37 +258,130 @@ jobs:
         if: matrix.formats != ''
         run: cargo packager --release -p halo --formats ${{ matrix.formats }}
 
+      # cargo-packager's deb config has no Suggests field. GNOME has no tray
+      # without the AppIndicator extension, so suggest it (not Recommends:
+      # that would pull gnome-shell onto KDE / XFCE / … systems).
+      - name: Add Suggests to the .deb
+        if: runner.os == 'Linux' && contains(matrix.formats, 'deb')
+        run: |
+          set -e
+          for deb in target/release/*.deb; do
+            dir=$(mktemp -d)
+            dpkg-deb -R "$deb" "$dir"
+            sed -i '/^Depends:/a Suggests: gnome-shell-extension-appindicator' "$dir/DEBIAN/control"
+            cat "$dir/DEBIAN/control"
+            dpkg-deb --root-owner-group -b "$dir" "$deb"
+            rm -rf "$dir"
+          done
+
       - name: Package RPM
         if: matrix.rpm
         run: cargo generate-rpm -p crates/halo-app
 
-      - name: Upload release assets
+      # Packages go to the release in "Publish release", after the Debian
+      # install test — a failed build or test never reaches the release.
+      - name: Collect packages
         shell: bash
         run: |
           shopt -s nullglob
+          mkdir -p dist
           files=(target/release/*.exe target/release/*.msi target/release/*.deb \
                  target/release/*.AppImage target/release/*.dmg \
                  target/release/halo_*.tar.gz target/generate-rpm/*.rpm)
-          # Arch package: upload its PKGBUILD alongside the archive.
+          # Arch package: ship its PKGBUILD alongside the archive.
           [[ "${{ matrix.formats }}" == *pacman* && -f target/release/PKGBUILD ]] && files+=(target/release/PKGBUILD)
-          # Keep the main binary out of the upload on Windows (halo.exe).
-          upload=()
           for f in "${files[@]}"; do
+            # Keep the bare binary out (halo.exe on Windows).
             [[ "$(basename "$f")" == "halo.exe" ]] && continue
-            upload+=("$f")
+            cp "$f" dist/
           done
-          if [ ${#upload[@]} -eq 0 ]; then
+          if [ -z "$(ls -A dist)" ]; then
             echo "no packages produced" >&2
             ls -la target/release
             exit 1
           fi
-          gh release upload "${{ needs.create-release.outputs.tag }}" "${upload[@]}" --clobber
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.slug }}
+          path: dist/*
+          if-no-files-found: error
+
+  # Install the .deb on a clean Debian 12 and 13 and launch it under Xvfb:
+  # every dependency must resolve, every library load, and the app must
+  # start without crashing.
+  test-debian:
+    name: Test .deb · ${{ matrix.label }}
+    needs: [create-release, build]
+    if: needs.create-release.outputs.deb == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: 'debian:bookworm', label: 'Debian 12 (bookworm)' }
+          - { image: 'debian:trixie', label: 'Debian 13 (trixie)' }
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages-linux
+          path: dist
+
+      - name: Install the .deb
+        run: |
+          set -e
+          apt-get update
+          apt-get install -y ./dist/*.deb
+          dpkg -s halo | grep -E '^(Version|Depends|Suggests):'
+
+      - name: Check libraries
+        run: |
+          set -e
+          if ldd /usr/bin/halo | grep 'not found'; then exit 1; fi
+          # Loaded at runtime (dlopen), so ldd doesn't list them.
+          for lib in libxkbcommon-x11.so.0 libayatana-appindicator3.so.1; do
+            ldconfig -p | grep -q "$lib" || { echo "missing $lib" >&2; exit 1; }
+          done
+          test -f /usr/share/applications/halo.desktop
+
+      - name: Launch under Xvfb
+        run: |
+          apt-get install -y --no-install-recommends xvfb xauth dbus-x11
+          export XDG_RUNTIME_DIR=$(mktemp -d) HOME=$(mktemp -d)
+          printf 'pcm.!default { type null }\n' > "$HOME/.asoundrc"
+          # Runs until the timeout (exit 124) = it started and kept running.
+          set +e
+          timeout 20 dbus-launch --exit-with-session xvfb-run -a -s '-screen 0 1280x800x24' halo > halo.log 2>&1
+          code=$?
+          cat halo.log
+          if [ "$code" != 124 ]; then echo "halo exited early with $code" >&2; exit 1; fi
 
   publish-release:
     name: Publish release
-    needs: [create-release, build]
+    needs: [create-release, build, test-debian]
+    # test-debian is skipped when no .deb was built; anything else failing
+    # (or cancelled) leaves the draft unpublished.
+    if: >-
+      !cancelled() && needs.build.result == 'success' &&
+      (needs.test-debian.result == 'success' || needs.test-debian.result == 'skipped')
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: dist
+          merge-multiple: true
+
+      - name: Upload packages
+        run: |
+          ls -la dist
+          gh release upload "${{ needs.create-release.outputs.tag }}" dist/* \
+            --repo "${{ github.repository }}" --clobber
+
       - uses: actions/github-script@v8
         with:
           script: |

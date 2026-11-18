@@ -19,17 +19,24 @@ permissions:
   contents: read
 
 jobs:
+  # Linux support targets Debian: the current release and the one before.
   rust-linux:
-    name: Rust (Linux — check, clippy, test)
-    runs-on: ubuntu-22.04
+    name: Rust (${{ matrix.label }} — ${{ matrix.clippy && 'check, clippy, test' || 'check, test' }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: 'debian:bookworm', label: 'Debian 12', clippy: true }
+          - { image: 'debian:trixie', label: 'Debian 13', clippy: false }
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
     steps:
-      - uses: actions/checkout@v5
-
+      # Before checkout, so checkout finds git (the image has none).
       - name: Install Linux system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git build-essential pkg-config \
             libasound2-dev \
             libdbus-1-dev \
             libxkbcommon-dev \
@@ -40,6 +47,17 @@ jobs:
             libayatana-appindicator3-dev \
             libxdo-dev
 
+      - uses: actions/checkout@v5
+
+      # The .deb's Depends (crates/halo-app/Cargo.toml, one line) must be
+      # installable on this release — catches renamed packages (t64 …).
+      - name: .deb dependencies resolve
+        run: |
+          deps=$(sed -n 's/^depends = \[\(.*\)\]$/\1/p' crates/halo-app/Cargo.toml | sed 's/", "/, /g; s/"//g')
+          echo "Depends: $deps"
+          test -n "$deps"
+          apt-get satisfy -s "$deps"
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -49,6 +67,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: '. -> target'
+          key: ${{ matrix.image }}
 
       - name: cargo check
         run: cargo check --workspace --all-targets --locked
@@ -56,6 +75,7 @@ jobs:
       # Report-only for now: the codebase has pre-existing clippy warnings.
       # Switch to `-- -D warnings` once they are cleaned up.
       - name: cargo clippy
+        if: matrix.clippy
         run: cargo clippy --workspace --all-targets --locked
 
       - name: cargo test
