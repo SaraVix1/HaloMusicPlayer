@@ -1,8 +1,8 @@
 # Halo Music Player
 
-> **Beta:** Halo is currently in beta. Releases are published as GitHub pre-releases — expect rough edges, and please report any bugs you hit.
+> **Beta:** Halo is currently in beta. Releases are labelled "(Beta)" — expect rough edges, and please report any bugs you hit.
 
-Halo is a fast, native desktop music player for your local library. Point it at your music folders and get a clean, modern player with gapless-feeling playback, a full equalizer, lyrics, smart playlists, and Last.fm scrobbling — all running offline against your own files.
+Halo is a fast, native desktop music player for your local library, written entirely in Rust (UI built with [iced](https://iced.rs)). Point it at your music folders and get a clean, modern player with gapless-feeling playback, a full equalizer, lyrics, smart playlists, and Last.fm scrobbling — all running offline against your own files.
 
 ## Features
 
@@ -50,38 +50,52 @@ Halo is a fast, native desktop music player for your local library. Point it at 
 
 ## Platform support
 
-Halo currently runs on **Windows, macOS, and Linux**. Mobile (Android/iOS) support is on the roadmap — see [docs/plan/halo-future-features.md](docs/plan/halo-future-features.md).
+Halo currently runs on **Windows, macOS, and Linux**. On Linux the target is **Debian 12 (bookworm) and Debian 13 (trixie)**: packages are built on Debian 12, and every release's `.deb` is install-tested on both. The tray icon works on KDE Plasma, COSMIC, Deepin, Cinnamon, XFCE, Budgie and MATE. GNOME needs the AppIndicator extension (`sudo apt install gnome-shell-extension-appindicator`, then log out and in); without a tray, the close button minimizes instead of hiding to the tray. Mobile (Android/iOS) support is on the roadmap — see [docs/plan/halo-future-features.md](docs/plan/halo-future-features.md).
 
 ## Installing
 
-Beta installers for Windows (`.msi`), macOS (universal `.dmg`), and Linux (`.AppImage`, `.deb`, `.rpm`) are published on the [Releases](https://github.com/SaraVix1/HaloMusicPlayer/releases) page, marked as pre-releases. You can also build Halo from source — see [Building from source](#building-from-source) below.
+Beta installers for Windows (setup `.exe` and `.msi`), macOS (universal `.dmg`), and Linux (`.AppImage`, `.deb`, `.rpm`) are published on the [Releases](https://github.com/SaraVix1/HaloMusicPlayer/releases) page; the newest regular release is marked "Latest". You can also build Halo from source — see [Building from source](#building-from-source) below.
 
 ### Versioning
 
-Halo uses `major.minor.patch` versions starting at `0.1.0`. Every push to `main` bumps the patch number automatically (`0.1.0` → `0.1.1` → `0.1.2` …). To set a version by hand, run `node scripts/bump-version.mjs <version>` and include `[skip bump]` in the commit title.
+Halo uses `major.minor.patch` versions starting at `0.1.0`. Every push to `main` bumps the patch number automatically (`0.1.0` → `0.1.1` → `0.1.2` …). To set a version by hand, run `python3 scripts/bump-version.py <version>` and include `[skip bump]` in the commit title.
 
 To publish a release, open **Actions → Release → Run workflow** on `main`. It builds the current version and publishes it as `v<version> (Beta)`. Pushing a `v*` tag works too.
+
+To publish a test build from any other branch, pick that branch in **Run workflow**. It is released as `v<version>-<branch>.<run number>` (for example `v0.1.3-iced-port.12`), a pre-release that never becomes "Latest".
+
+**Run workflow** also shows a checkbox per package — Windows setup `.exe` / `.msi`, Linux `.deb` / AppImage / `.rpm` / Arch package, macOS `.dmg` — so you can build only what you need. Only the operating systems with a ticked package are built. Pushing a `v*` tag builds everything except the Arch package.
 
 ## Building from source
 
 ### Prerequisites
 
 - **Rust** (stable toolchain — on Windows, the MSVC toolchain `stable-x86_64-pc-windows-msvc`)
-- On Windows: **Visual Studio 2022+** with the **"Desktop development with C++"** workload (provides `link.exe` for the Rust MSVC toolchain)
-- **Node.js** ≥ 18
+- On Windows: **Visual Studio 2022+** with the **"Desktop development with C++"** workload
+- On Linux: `pkg-config libasound2-dev libdbus-1-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev`
 
 ### Run in development mode
 
 ```bash
-npm install
-npm run tauri dev
+cargo run -p halo
 ```
 
-### Build a production binary
+### Build a production binary and installers
 
 ```bash
-npm run tauri build
+cargo build --release -p halo
+cargo install cargo-packager --locked
+cargo packager --release -p halo
 ```
+
+Installers are written to `target/release/`. For an `.rpm` (Fedora, openSUSE, …), after the release build:
+
+```bash
+cargo install cargo-generate-rpm --locked
+cargo generate-rpm -p crates/halo-app
+```
+
+It is written to `target/generate-rpm/`.
 
 ## Getting started
 

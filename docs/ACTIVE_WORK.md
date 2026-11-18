@@ -8,7 +8,13 @@ Keep entries short. Link to the full spec rather than duplicating it.
 
 ## In Progress
 
-_Nothing currently in flight. Move items here from **Next Up** when you start them._
+- **iced port** — Tauri v2 + React replaced by a native iced 0.14 UI on branch `iced-port`: `crates/halo-backend` (Tauri-free backend) + `crates/halo-app` (UI, one file per page/tab), cargo-packager installers (+ `.rpm` via cargo-generate-rpm). Linux targets Debian 12 + 13 (packages built on bookworm; release install-tests the `.deb` on both). CI green on Debian 12 / 13 / Windows.
+  - Fixed after the `v0.1.3-iced-port.12` test, **not yet re-tested on real hardware**: tray menu actions (channel created too late); mini player off-screen at 125 % on Windows (saved position is physical px — HAZARDS); mini snaps back into the work area after a drag; close-to-tray minimizes when no tray exists (plain GNOME).
+  - Release from `iced-port` passes: `v0.1.3-iced-port.16` (bookworm-container build; `.deb` installs, loads its libraries and launches on Debian 12 and 13). The RPM built in run #14 but wasn't in #16 (unticked).
+  - MX KDE (Wayland) test of `.16`: opening the mini player left the main window up and the mini player wasn't on top (Wayland can't do either). Fixed by running under XWayland (`HALO_WAYLAND=1` opts out); verified on MX KDE (Wayland session).
+  - Next: check the next build on Windows 125 % (mini player, tray), KDE / GNOME (tray), Debian (`.deb` install).
+  - Open question: CI compiles on both Debian 12 and 13 — keep, or compile on 12 only plus a quick Debian 13 dependency-name check?
+  - Still unverified: media keys / file associations on Windows & macOS hardware; macOS "Open with" while running (no iced API yet).
 
 <!--
 Template:
@@ -24,7 +30,7 @@ Tracked separately from v1.1 features. Spec: [plan/halo-cross-platform-architect
 - ~~**Phase A — Extract core**~~ — ✅ Complete. Cargo workspace; `halo-core` crate with pure queue/playback logic; 23 unit tests. No behavior change.
 - ~~**Phase B — Event-driven audio**~~ — ✅ Complete. `PositionSource` sample-clock replaces `Instant` drift. `AudioEvent` channel (`TrackFinished`, `NearEnd`) replaces `finished_flag`/`crossfading` atomics. `MediaInput` trait + `LocalFsInput`. Pre-existing bug fixed: play-stats now recorded on natural track end.
 - ~~**Phase C — Platform ports (desktop)**~~ — ✅ Complete. `NowPlayingController` trait + `RemoteCommand` in `halo-core`. `MediaControlsHandle` implements the trait. `handle_remote_command` replaces `handle_hotkey`. Desktop (Windows SMTC / macOS / Linux MPRIS) fully unified.
-- **Phase D — Android** — ⏳ Not started. `MediaStoreSource`, Android `MediaSession` Tauri plugin, audio-focus/interruption handling, responsive frontend shell + capability gating, `sources` schema migration.
+- **Phase D — Android** — ⏳ Not started. `MediaStoreSource`, Android `MediaSession` integration, audio-focus/interruption handling, responsive frontend shell + capability gating, `sources` schema migration.
 - **Phase E — iOS** — ⏳ Not started. Document-picker source, `MPNowPlayingInfoCenter` + remote command center, background-audio mode.
 
 ---
@@ -36,7 +42,7 @@ Pulled from [plan/halo-future-features.md](plan/halo-future-features.md). Mini p
 **Recent polish (not in original spec):**
 - ~~Settings reorganization~~ — ✅ Categorized sidebar (General / Appearance / Playback / Equalizer / Library / Advanced). New: close-behavior (minimize-to-tray vs quit), resume-on-launch + watch-folders toggles, auto-scan-on-add. Generic `get_pref`/`set_pref` key/value store added. (Last.fm now lives under Advanced as an optional integration — the standalone Services tab was removed since it held nothing else.)
 - ~~Resume on launch~~ — ✅ Backend wired. The 250ms ticker persists current index / position / status to `app_state` (`player::persist_playback_progress`); at startup `player::resume_on_launch` reloads the saved track and seeks to position. Restores the prior play/pause state, defaulting to **paused** when the status is unknown (avoids surprise audio). Spec [§Tier 3 resume].
-- ~~Watch folders~~ — ✅ Backend wired. [src-tauri/src/watcher.rs](../src-tauri/src/watcher.rs): `notify` crate watches all managed folders recursively; Create/Remove/Modify events are coalesced through a 2s debounce, then trigger a full `run_scan` + `library-changed`. `watcher::reconfigure` is called on startup, on the `set_watch_folders` toggle, and on folder add/remove. Full rescan per change (debounced) — fine for small libraries; incremental scan is a future 50k+ improvement.
+- ~~Watch folders~~ — ✅ Backend wired. [crates/halo-backend/src/watcher.rs](../crates/halo-backend/src/watcher.rs): `notify` crate watches all managed folders recursively; Create/Remove/Modify events are coalesced through a 2s debounce, then trigger a full `run_scan` + `library-changed`. `watcher::reconfigure` is called on startup, on the `set_watch_folders` toggle, and on folder add/remove. Full rescan per change (debounced) — fine for small libraries; incremental scan is a future 50k+ improvement.
 - ~~Unified Playlists~~ — ✅ Manual + smart playlists now share one `/playlists` list page and one sidebar entry (smart badged ✨, built-ins locked; All/Manual/Smart filter; "New ▾" picks manual vs smart). Detail editors and DB tables stay separate; `/smart-playlists` list redirects to `/playlists`. Manual playlist detail gained a Shuffle button and native drag-to-reorder (replacing ↑↓ arrows).
 - ~~Follow system output device~~ — ✅ When the OS default playback device changes, the audio stream reopens on the new device and resumes the current track in place (`PlayerHandle::rebuild_output`).
 - ~~Mini player UX~~ — ✅ Controls visible only past album art on hover; timer labels draggable; expand button distinct background; padding removed.

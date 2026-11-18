@@ -4,21 +4,120 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual runs show one checkbox per package; tag pushes build the
+  # defaults (everything except the Arch package).
   workflow_dispatch:
+    inputs:
+      windows_nsis:
+        description: 'Windows — setup .exe (NSIS)'
+        type: boolean
+        default: true
+      windows_msi:
+        description: 'Windows — .msi (WiX)'
+        type: boolean
+        default: true
+      linux_deb:
+        description: 'Linux — .deb'
+        type: boolean
+        default: true
+      linux_appimage:
+        description: 'Linux — AppImage'
+        type: boolean
+        default: true
+      linux_rpm:
+        description: 'Linux — .rpm (Fedora, openSUSE, …)'
+        type: boolean
+        default: true
+      linux_pacman:
+        description: 'Linux — Arch package (.tar.gz + PKGBUILD)'
+        type: boolean
+        default: false
+      macos_dmg:
+        description: 'macOS — universal .dmg (Intel + Apple Silicon)'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
 
 jobs:
   create-release:
+    name: Prepare release
     runs-on: ubuntu-latest
     outputs:
-      release_id: ${{ steps.create-release.outputs.result }}
+      release_id: ${{ steps.create-release.outputs.result && fromJSON(steps.create-release.outputs.result).id }}
+      tag: ${{ steps.create-release.outputs.result && fromJSON(steps.create-release.outputs.result).tag }}
+      matrix: ${{ steps.plan.outputs.result && toJSON(fromJSON(steps.plan.outputs.result).matrix) }}
+      deb: ${{ steps.plan.outputs.result && fromJSON(steps.plan.outputs.result).deb }}
     steps:
       - uses: actions/checkout@v5
-      # A v* tag push releases that tag. A manual run from main releases the
-      # current version: it creates the tag v<version from tauri.conf.json>
-      # on this commit. Manual runs from any other branch are refused.
+      # Turn the package checkboxes into the build matrix: one entry per OS
+      # with at least one package selected, named after its packages
+      # ("Linux · DEB + AppImage + RPM"). Runs before the release is created,
+      # so selecting nothing fails without leaving an empty draft.
+      # `formats` are cargo-packager formats; `rpm` is built separately with
+      # cargo-generate-rpm (cargo-packager has no rpm format).
+      - name: Plan packages
+        id: plan
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const defaults = {
+              windows_nsis: true, windows_msi: true,
+              linux_deb: true, linux_appimage: true, linux_rpm: true, linux_pacman: false,
+              macos_dmg: true,
+            }
+            const inputs = context.payload.inputs || {}
+            // workflow_dispatch inputs arrive as booleans or 'true'/'false'.
+            const on = (k) => (k in inputs ? String(inputs[k]) === 'true' : defaults[k])
+            const include = []
+            // packages: [input, cargo-packager formats, label]; rpm has no
+            // packager format and is flagged separately.
+            // `container` runs the job in that image ('' = on the runner).
+            const add = (os, platform, packages, container = '') => {
+              const picked = packages.filter(([k]) => on(k))
+              if (!picked.length) return
+              include.push({
+                name: `${os} · ${picked.map(([, , label]) => label).join(' + ')}`,
+                slug: os.toLowerCase(),
+                platform,
+                container,
+                formats: picked.flatMap(([, f]) => f).join(','),
+                rpm: picked.some(([k]) => k === 'linux_rpm'),
+              })
+            }
+            add('Windows', 'windows-latest', [
+              ['windows_nsis', ['nsis'], 'Setup .exe'],
+              ['windows_msi', ['wix'], 'MSI'],
+            ])
+            // Linux packages are built on Debian 12 (bookworm), the oldest
+            // supported Debian: its glibc 2.36 binary also runs on Debian 13.
+            add('Linux', 'ubuntu-latest', [
+              ['linux_deb', ['deb'], 'DEB'],
+              ['linux_appimage', ['appimage'], 'AppImage'],
+              ['linux_rpm', [], 'RPM'],
+              ['linux_pacman', ['pacman'], 'Arch'],
+            ], 'debian:bookworm')
+            // The .dmg is built from the .app bundle.
+            add('macOS', 'macos-latest', [['macos_dmg', ['app', 'dmg'], 'Universal DMG']])
+            if (!include.length) {
+              core.setFailed('No packages selected — tick at least one package.')
+              return
+            }
+            core.info(`Building: ${include.map((e) => e.name).join(', ')}`)
+            // `deb` gates the Debian install test.
+            return { matrix: { include }, deb: on('linux_deb') }
+      # What gets released:
+      # - a v* tag push releases that tag;
+      # - a manual run from main releases the current version: it creates the
+      #   tag v<[workspace.package] version> on this commit;
+      # Both are full releases marked "Latest" (named "(Beta)") — GitHub's
+      # repo sidebar only shows a release that is "Latest", never a
+      # pre-release.
+      # - a manual run from any other branch releases a branch build: it
+      #   creates the semver pre-release tag v<version>-<branch>.<run number>
+      #   (e.g. v0.1.3-iced-port.12) on this commit; always a pre-release,
+      #   never marked "Latest".
       - name: Create draft release
         id: create-release
         uses: actions/github-script@v8
@@ -26,98 +125,270 @@ jobs:
           script: |
             const fs = require('fs')
             const { owner, repo } = context.repo
+
+            const readVersion = () => {
+              const toml = fs.readFileSync('Cargo.toml', 'utf8')
+              const m = /\[workspace\.package\][^\[]*?\nversion\s*=\s*"([^"]+)"/.exec(toml)
+              if (!m) throw new Error('version not found in [workspace.package] of Cargo.toml')
+              return m[1]
+            }
+            const tagExists = async (t) =>
+              !!(await github.rest.git
+                .getRef({ owner, repo, ref: `tags/${t}` })
+                .catch((e) => (e.status === 404 ? null : Promise.reject(e))))
+
             let tag
+            let name
+            let branchBuild = false
             if (context.ref.startsWith('refs/tags/v')) {
               tag = context.ref.replace('refs/tags/', '')
+              name = `${tag} (Beta)`
             } else if (context.ref === 'refs/heads/main') {
-              const { version } = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'))
-              tag = `v${version}`
-              const existing = await github.rest.git
-                .getRef({ owner, repo, ref: `tags/${tag}` })
-                .catch((e) => (e.status === 404 ? null : Promise.reject(e)))
-              if (existing) {
+              tag = `v${readVersion()}`
+              name = `${tag} (Beta)`
+              if (await tagExists(tag)) {
                 core.setFailed(`Tag ${tag} already exists. Push a new commit to main (it bumps the version) and run again.`)
                 return
               }
+            } else if (context.ref.startsWith('refs/heads/')) {
+              const branch = context.ref.replace('refs/heads/', '')
+              // Semver pre-release identifiers: [0-9A-Za-z-] separated by dots.
+              const slug = branch.replace(/[^0-9A-Za-z-]+/g, '-').replace(/^-+|-+$/g, '') || 'branch'
+              tag = `v${readVersion()}-${slug}.${context.runNumber}`
+              name = `${tag} (Beta, ${branch} branch build)`
+              branchBuild = true
+              if (await tagExists(tag)) {
+                core.setFailed(`Tag ${tag} already exists.`)
+                return
+              }
             } else {
-              core.setFailed(`Release must run from main or a v* tag, not ${context.ref}`)
+              core.setFailed(`Release must run from a branch or a v* tag, not ${context.ref}`)
               return
             }
+
             const { data } = await github.rest.repos.createRelease({
               owner,
               repo,
               tag_name: tag,
               target_commitish: context.sha,
-              name: `${tag} (Beta)`,
+              name,
+              body: branchBuild
+                ? `Branch build of \`${context.ref.replace('refs/heads/', '')}\` at ${context.sha.slice(0, 7)} — for testing; not a regular release.`
+                : undefined,
               draft: true,
-              // Halo is in beta — publish every release as a pre-release
-              prerelease: true,
+              // Branch builds are test builds: pre-release, never "Latest".
+              // Regular releases are full releases so the repo sidebar shows
+              // them; "(Beta)" in the name marks the beta status instead.
+              prerelease: branchBuild,
+              make_latest: branchBuild ? 'false' : 'true',
             })
-            return data.id
+            return { id: data.id, tag }
 
   build:
+    name: ${{ matrix.name }}
     needs: create-release
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # Windows MSI
-          - platform: windows-latest
-            args: ''
-          # Linux AppImage, .deb, .rpm (all produced by one build via bundle.targets: "all")
-          - platform: ubuntu-22.04
-            args: ''
-          # macOS — Intel + Apple Silicon
-          - platform: macos-latest
-            args: '--target universal-apple-darwin'
+      # Chosen in the "Plan packages" step: entries of
+      # {name, slug, platform, container, formats, rpm}.
+      matrix: ${{ fromJSON(needs.create-release.outputs.matrix) }}
 
     runs-on: ${{ matrix.platform }}
+    # Linux: debian:bookworm. Windows / macOS: '' = directly on the runner.
+    container: ${{ matrix.container }}
+    env:
+      # AppImage tooling is itself an AppImage; containers have no FUSE.
+      APPIMAGE_EXTRACT_AND_RUN: 1
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Linux system dependencies (deb/rpm/AppImage build deps)
-        if: matrix.platform == 'ubuntu-22.04'
+      # Before checkout, so checkout finds git (the image has none).
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git build-essential pkg-config file xz-utils \
             libasound2-dev \
-            rpm \
-            file
+            libdbus-1-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libwayland-dev \
+            libx11-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libxdo-dev \
+            libfuse2
+
+      - uses: actions/checkout@v5
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: '. -> target'
+          # Keep the Debian container's cache apart from runner builds.
+          key: ${{ matrix.container || matrix.platform }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
+      - name: Install cargo-packager
+        if: matrix.formats != ''
+        run: cargo install cargo-packager --version 0.11.8 --locked
+
+      - name: Install cargo-generate-rpm
+        if: matrix.rpm
+        run: cargo install cargo-generate-rpm --version 0.21.1 --locked
+
+      - name: Build (Windows / Linux)
+        if: runner.os != 'macOS'
+        run: cargo build --release -p halo --locked
+
+      - name: Build universal binary (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cargo build --release -p halo --locked --target aarch64-apple-darwin
+          cargo build --release -p halo --locked --target x86_64-apple-darwin
+          mkdir -p target/release
+          lipo -create -output target/release/halo \
+            target/aarch64-apple-darwin/release/halo \
+            target/x86_64-apple-darwin/release/halo
+
+      - name: Package
+        if: matrix.formats != ''
+        run: cargo packager --release -p halo --formats ${{ matrix.formats }}
+
+      # cargo-packager's deb config has no Suggests field. GNOME has no tray
+      # without the AppIndicator extension, so suggest it (not Recommends:
+      # that would pull gnome-shell onto KDE / XFCE / … systems).
+      - name: Add Suggests to the .deb
+        if: runner.os == 'Linux' && contains(matrix.formats, 'deb')
+        run: |
+          set -e
+          for deb in target/release/*.deb; do
+            dir=$(mktemp -d)
+            dpkg-deb -R "$deb" "$dir"
+            sed -i '/^Depends:/a Suggests: gnome-shell-extension-appindicator' "$dir/DEBIAN/control"
+            cat "$dir/DEBIAN/control"
+            dpkg-deb --root-owner-group -b "$dir" "$deb"
+            rm -rf "$dir"
+          done
+
+      - name: Package RPM
+        if: matrix.rpm
+        run: cargo generate-rpm -p crates/halo-app
+
+      # Packages go to the release in "Publish release", after the Debian
+      # install test — a failed build or test never reaches the release.
+      - name: Collect packages
+        shell: bash
+        run: |
+          shopt -s nullglob
+          mkdir -p dist
+          files=(target/release/*.exe target/release/*.msi target/release/*.deb \
+                 target/release/*.AppImage target/release/*.dmg \
+                 target/release/halo_*.tar.gz target/generate-rpm/*.rpm)
+          # Arch package: ship its PKGBUILD alongside the archive.
+          [[ "${{ matrix.formats }}" == *pacman* && -f target/release/PKGBUILD ]] && files+=(target/release/PKGBUILD)
+          for f in "${files[@]}"; do
+            # Keep the bare binary out (halo.exe on Windows).
+            [[ "$(basename "$f")" == "halo.exe" ]] && continue
+            cp "$f" dist/
+          done
+          if [ -z "$(ls -A dist)" ]; then
+            echo "no packages produced" >&2
+            ls -la target/release
+            exit 1
+          fi
+          ls -la dist
+
+      - uses: actions/upload-artifact@v6
         with:
-          node-version: 22
+          name: packages-${{ matrix.slug }}
+          path: dist/*
+          if-no-files-found: error
 
-      - name: Install frontend dependencies
-        run: npm ci
-
-      - name: Build Tauri app and upload release assets
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # Install the .deb on a clean Debian 12 and 13 and launch it under Xvfb:
+  # every dependency must resolve, every library load, and the app must
+  # start without crashing.
+  # Runs even if another OS's build failed or never got a runner (macOS
+  # capacity): it only needs the Linux packages, and a failed Linux build
+  # fails it at the download step. Publishing still needs every build.
+  test-debian:
+    name: Test .deb · ${{ matrix.label }}
+    needs: [create-release, build]
+    if: ${{ !cancelled() && needs.create-release.outputs.deb == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: 'debian:bookworm', label: 'Debian 12 (bookworm)' }
+          - { image: 'debian:trixie', label: 'Debian 13 (trixie)' }
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@v7
         with:
-          releaseId: ${{ needs.create-release.outputs.release_id }}
-          args: ${{ matrix.args }}
+          name: packages-linux
+          path: dist
+
+      - name: Install the .deb
+        shell: bash
+        run: |
+          set -eo pipefail
+          apt-get update
+          apt-get install -y ./dist/*.deb
+          # The package is named after productName (halo-music-player), not
+          # the binary — read it from the .deb rather than hard-coding it.
+          pkg=$(dpkg-deb -f dist/*.deb Package)
+          dpkg -s "$pkg" | grep -E '^(Package|Version|Depends|Suggests):'
+
+      - name: Check libraries
+        run: |
+          set -e
+          if ldd /usr/bin/halo | grep 'not found'; then exit 1; fi
+          # Loaded at runtime (dlopen), so ldd doesn't list them.
+          for lib in libxkbcommon-x11.so.0 libayatana-appindicator3.so.1; do
+            ldconfig -p | grep -q "$lib" || { echo "missing $lib" >&2; exit 1; }
+          done
+          test -f /usr/share/applications/halo.desktop
+
+      - name: Launch under Xvfb
+        run: |
+          apt-get install -y --no-install-recommends xvfb xauth dbus-x11
+          export XDG_RUNTIME_DIR=$(mktemp -d) HOME=$(mktemp -d)
+          printf 'pcm.!default { type null }\n' > "$HOME/.asoundrc"
+          # Runs until the timeout (exit 124) = it started and kept running.
+          set +e
+          timeout 20 dbus-launch --exit-with-session xvfb-run -a -s '-screen 0 1280x800x24' halo > halo.log 2>&1
+          code=$?
+          cat halo.log
+          if [ "$code" != 124 ]; then echo "halo exited early with $code" >&2; exit 1; fi
 
   publish-release:
-    needs: [create-release, build]
+    name: Publish release
+    needs: [create-release, build, test-debian]
+    # test-debian is skipped when no .deb was built; anything else failing
+    # (or cancelled) leaves the draft unpublished.
+    if: >-
+      !cancelled() && needs.build.result == 'success' &&
+      (needs.test-debian.result == 'success' || needs.test-debian.result == 'skipped')
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: packages-*
+          path: dist
+          merge-multiple: true
+
+      - name: Upload packages
+        run: |
+          ls -la dist
+          gh release upload "${{ needs.create-release.outputs.tag }}" dist/* \
+            --repo "${{ github.repository }}" --clobber
+
       - uses: actions/github-script@v8
         with:
           script: |

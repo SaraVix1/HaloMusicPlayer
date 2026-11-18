@@ -4,233 +4,147 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-**Halo** is a desktop music player built with Tauri v2 (Rust backend + React/TypeScript frontend), SQLite, and audio playback via Rust crates. See [docs/plan/halo-future-features.md](docs/plan/halo-future-features.md) for the full feature roadmap and [docs/ACTIVE_WORK.md](docs/ACTIVE_WORK.md) for what's currently in flight.
+**Halo** is a desktop music player written entirely in Rust: a native UI built with [iced](https://iced.rs) 0.14, SQLite for the library, and rodio/symphonia for audio. See [docs/plan/halo-future-features.md](docs/plan/halo-future-features.md) for the feature roadmap and [docs/ACTIVE_WORK.md](docs/ACTIVE_WORK.md) for what's in flight. Non-obvious traps are collected in [docs/HAZARDS.md](docs/HAZARDS.md).
+
+(Halo was a Tauri v2 + React app until the `iced-port` branch; the UI was ported 1:1 — same shadcn "neutral" look, Geist font, Lucide icons, layout and behaviour.)
 
 ## Prerequisites
 
-- **Rust** (stable MSVC toolchain: `stable-x86_64-pc-windows-msvc`)
-- **Visual Studio 2022+** with the **"Desktop development with C++"** workload — provides `link.exe` required by the Rust MSVC toolchain. Without this workload, Git's `link.exe` shadows MSVC's and all Rust builds fail.
-- **Node.js** ≥ 18
-
-## Tech stack
-
-| Layer | Technology |
-|---|---|
-| Framework | Tauri v2 |
-| Frontend | React + TypeScript + shadcn/ui (base-ui) + Tailwind CSS v4 |
-| Database | SQLite via `rusqlite` (bundled feature) |
-| Audio playback | `rodio` |
-| Metadata | `lofty` crate |
-| State management | `zustand` |
+- **Rust** stable (Windows: MSVC toolchain `stable-x86_64-pc-windows-msvc`; `rust-lld` is configured in [.cargo/config.toml](.cargo/config.toml), see HAZARDS).
+- **Linux** build deps: `pkg-config libasound2-dev libdbus-1-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libx11-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev` (GTK/appindicator are for the tray icon, dbus for MPRIS).
+- No Node.js.
 
 ## Common commands
 
 ```bash
-# Install frontend dependencies
-npm install
+cargo run -p halo                 # run the app (debug)
+cargo build --release -p halo     # release binary → target/release/halo
+cargo check --workspace           # check all crates
+cargo test --workspace            # all tests (halo-core, halo-backend, halo app)
+cargo test -p halo-core           # domain-logic tests only
+cargo test <test_name>            # single test
+cargo clippy --workspace          # lint
 
-# Run in development mode (starts Vite + Rust watcher)
-npm run tauri dev
+# Installers (cargo install cargo-packager --locked)
+cargo packager --release -p halo                      # all formats for this OS
+cargo packager --release -p halo --formats deb,appimage
+# RPM (cargo-packager has none; cargo install cargo-generate-rpm --locked)
+cargo generate-rpm -p crates/halo-app             # → target/generate-rpm/*.rpm
 
-# Build for production
-npm run tauri build
-
-# Type-check frontend only
-npx tsc --noEmit
-
-# Check Rust (workspace — checks all crates)
-cargo check
-
-# Run all Rust tests (workspace)
-cargo test
-
-# Run halo-core unit tests only
-cargo test -p halo-core
-
-# Run a single test by name
-cargo test <test_name>
-
-# Lint Rust
-cargo clippy
-
-# Set the app version by hand (package.json, package-lock, Cargo.toml, Cargo.lock, tauri.conf.json)
-node scripts/bump-version.mjs <version>
+# Set the version by hand (root Cargo.toml [workspace.package] + Cargo.lock)
+python3 scripts/bump-version.py <version>
 ```
 
-**Versioning:** Halo is in beta. `.github/workflows/bump-version.yml` bumps the patch version on every push to `main` (skipped when the commit title contains `[skip bump]`); `release.yml` publishes a "(Beta)" pre-release for a pushed `v*` tag, or — when run manually from `main` — for `v<current version>`, creating that tag.
+**Versioning:** Halo is in beta. `.github/workflows/bump-version.yml` bumps the patch version on every push to `main` (skipped when the commit title contains `[skip bump]`); `release.yml` builds installers with cargo-packager (plus the `.rpm` with cargo-generate-rpm) and publishes a "(Beta)" release marked "Latest" for a pushed `v*` tag, or — when run manually from `main` — for `v<current version>`, creating that tag. (Not a pre-release: the repo sidebar only shows the "Latest" release.) A manual run from any other branch publishes a branch build tagged `v<version>-<branch>.<run number>` (pre-release, never "Latest"). Manual runs have one checkbox per package (`windows_nsis`, `windows_msi`, `linux_deb`, `linux_appimage`, `linux_rpm`, `linux_pacman`, `macos_dmg`); the "Plan packages" step turns them into the build matrix (jobs named like "Linux · DEB + AppImage + RPM"), so only OSes with a ticked package run. Tag pushes use the defaults (all but pacman).
 
 ## Architecture
 
-### Project structure
+### Workspace
 
 ```
-halo/
-├── Cargo.toml                   # [workspace] members: src-tauri, crates/*
-├── crates/
-│   └── halo-core/               # Pure domain logic — no I/O, no Tauri, no rodio
-│       └── src/
-│           ├── lib.rs           # pub mod declarations
-│           ├── audio_event.rs   # AudioEvent enum (TrackFinished, NearEnd)
-│           ├── media_input.rs   # MediaInput trait (Read + Seek + Send + Sync)
-│           ├── now_playing.rs   # NowPlayingController trait, NowPlayingMeta, PlaybackInfo, RemoteCommand
-│           ├── playback.rs      # is_played (local play-count threshold: 30s-or-50%) + should_scrobble (Last.fm threshold: 50%-or-4min, min 30s length) + unit tests
-│           └── queue.rs         # RepeatMode, next_index (sequential), ShuffleOrder (Fisher-Yates play order + cursor: advance/prev/jump_to/on_insert/on_remove), should_crossfade + unit tests
-├── src-tauri/
-│   ├── src/
-│   │   ├── main.rs              # Entry point — calls halo_lib::run()
-│   │   ├── lib.rs               # Tauri builder: plugins, state, command registration, 250ms ticker (sleep timer, audio events, SMTC sync, output-device follow, persist playback progress); resume_on_launch + watcher init/reconfigure at setup; sync_media_controls; handle_remote_command; close-behavior (minimize-to-tray vs quit)
-│   │   ├── open_files.rs        # "Open with Halo" / double-click: paths_from_args (argv → playable paths, file:// URIs, relative paths), 300ms-coalesced enqueue → scanner::import_paths → set_queue_and_play; fed by setup() argv (cold start, replaces resume_on_launch), single-instance argv (warm), RunEvent::Opened (macOS). PLAYABLE_EXTENSIONS must match bundle.fileAssociations
-│   │   ├── watcher.rs           # FolderWatcher (notify crate): recursively watches managed folders, 2s-debounced full rescan on Create/Remove/Modify; reconfigure() on startup, toggle, and folder add/remove; set_watch_folders command
-│   │   ├── tray.rs              # System tray icon, menu, and show/hide logic
-│   │   ├── audio/
-│   │   │   ├── mod.rs           # AudioBackend trait, PlayerHandle, Worker, rodio sink management, AudioEvent drain; rebuild_output (reopen on new OS default device, resume in place)
-│   │   │   ├── eq.rs            # EqState (atomic gains + stereo/dynamic flags), 10-band biquad EqSource w/ dynamic-EQ level blend, StereoExpander (mid/side widening)
-│   │   │   ├── local_input.rs   # LocalFsInput — desktop MediaInput impl (BufReader<File>)
-│   │   │   ├── resampler.rs     # ResampledSource (rubato), PositionSource (sample-clock counter), device_sample_rate
-│   │   │   └── media_controls.rs # souvlaki wrapper — implements NowPlayingController; spawns SMTC/MPRIS thread
-│   │   ├── db/
-│   │   │   ├── mod.rs           # DB connection (WAL mode, FK enforcement, migrations)
-│   │   │   └── migrations.rs    # Versioned runner (PRAGMA user_version): 001–010, each file wired explicitly
-│   │   ├── scanner/
-│   │   │   ├── mod.rs           # Scan orchestration + progress events; import_paths (single-file import for open_files, folder_id = deepest managed folder or NULL)
-│   │   │   ├── walker.rs        # Recursive folder walk, extension filter
-│   │   │   ├── metadata.rs      # lofty tag extraction, multi-value delimiter splitting
-│   │   │   └── art.rs           # Album art extraction and cache
-│   │   └── commands/
-│   │       ├── mod.rs
-│   │       ├── folders.rs       # get_folders / add_folder / remove_folder (calls watcher::reconfigure on change)
-│   │       ├── library.rs       # get_tracks / get_albums / get_artists / get_album_artists / get_composers / get_genres / get_years / get_folder_tracks
-│   │       ├── lyrics.rs        # get_lyrics / save_lyrics IPC commands
-│   │       ├── metadata_editor.rs # get_track_full_metadata / save_track_metadata / extract_track_art / fetch_art_from_url / search_cover_art / process_art; emits library-changed after save
-│   │       ├── player.rs        # Playback IPC commands, handle_audio_events, FullPlayerState; queue/shuffle/repeat via halo-core (ShuffleState = in-memory shuffle order; persists cursor `player.shuffle_pos` per move, full order `player.shuffle_order` only when the permutation changes; self-heals if stale; upcoming_index shared by next/track-end/crossfade); replace_queue is one transaction; track_at_index = indexed point lookup on contiguous positions; persist_playback_progress + resume_on_launch (restores prior play/pause state, paused if unknown)
-│   │       ├── playlists.rs     # Playlist CRUD + track management
-│   │       ├── scan.rs          # scan_library / clear_cache / clear_database / scan settings
-│   │       ├── search.rs        # Full-text search across tracks, albums, artists, playlists
-│   │       ├── sleep_timer.rs   # Sleep timer state, tick(), IPC commands
-│   │       ├── stats.rs         # play_count / skip_count / rating / last_played_at
-│   │       ├── eq.rs            # EQ IPC: bands/bypass/presets, user presets, per-device profiles, set_eq_stereo / set_eq_dynamic; restore_eq_state + load_device_eq_if_exists
-│   │       ├── lastfm.rs        # Last.fm: app API key/secret entered in Settings → Advanced and persisted in app_state. Browser token sign-in (start_auth → user authorises → complete_auth, auto-polled by Settings). Now-playing, scrobble (gated by should_scrobble), offline queue w/ retry, love/unlove (lastfm_love / lastfm_is_loved). Per-user session is memory-only by default; opt-in "Stay signed in" (lastfm_set_stay_signed_in) persists it. Error 9 (invalid session) clears it
-│   │       ├── smart_playlists.rs # Rule-based smart playlist CRUD + track evaluation
-│   │       ├── ui.rs            # get_theme / set_theme (emits "theme-changed"); get_pref / set_pref (generic app_state key/value store) + read_close_behavior
-│   │       └── window.rs        # Mini player window build, open/restore, position persistence; Linux-specific: transparent(true) + set_size after build + bottom-right default position; set_always_on_top/set_focus use .ok() (Wayland blocks both — a propagated error would skip main.hide())
-│   ├── migrations/
-│   │   ├── 001_initial.sql      # Full schema (idempotent CREATE TABLE IF NOT EXISTS)
-│   │   ├── 002_stats.sql        # rating, play_count, skip_count, last_played_at columns
-│   │   ├── 003_lyrics.sql … 008_waveform_rms.sql  # lyrics, EQ presets, smart playlists, device EQ, waveform cache
-│   │   ├── 009_lastfm_queue.sql # Last.fm offline scrobble queue
-│   │   └── 010_queue_position_index.sql # index on queue(position)
-│   ├── capabilities/
-│   │   └── default.json         # Tauri v2 permissions: core, opener, dialog
-│   └── Cargo.toml
-├── src/
-│   ├── components/
-│   │   ├── ui/                  # shadcn/ui components (base-ui based): button, dialog, slider,
-│   │   │                        # tooltip, separator, scroll-area, star-rating
-│   │   ├── title-bar.tsx        # Custom drag region + window controls (decorations: false)
-│   │   ├── sidebar.tsx          # Icon-only nav rail; Library icon opens /library (tabbed sub-nav inside); single Playlists entry covers manual + smart (no separate Smart Playlists icon)
-│   │   ├── now-playing.tsx      # Playback controls, seek bar, volume, star rating; 2-line track info (Title·Album / Composer·Artist) with ResizeObserver marquee; time labels above seek bar; EQ shortcut icon → /settings?tab=equalizer; Last.fm love (heart) toggle shown only when connected, loved-state fetched per track
-│   │   ├── mini-player.tsx      # Compact overlay window: art + 2-line marquee info / controls on hover; root div uses h-[30px] (not h-full) so WebKitGTK reports the correct 30 px preferred height to GTK on Linux
-│   │   ├── sleep-timer-button.tsx # Sleep timer popover (presets, EOS mode, fade toggle, countdown)
-│   │   ├── album-art.tsx        # Album art image with fallback
-│   │   ├── command-palette.tsx  # Ctrl+K global search overlay
-│   │   ├── virtual-grid.tsx     # Reusable virtualised grid (@tanstack/react-virtual); parentRef always mounted so ResizeObserver attaches correctly
-│   │   ├── metadata-editor-dialog.tsx # Full tag editor: all standard fields + track/disc totals, comment, publisher, copyright, language; album art extract/URL/crop/resize/compress/MusicBrainz online search
-│   │   ├── lyrics-panel.tsx     # Synced / plain lyrics panel; LRC file + embedded tag; auto-scroll on playback
-│   │   └── add-to-playlist-dialog.tsx
-│   ├── pages/
-│   │   ├── all-songs.tsx        # Virtualized track table with sort, rating column, Play All / Shuffle Play
-│   │   ├── albums.tsx           # Album grid (VirtualGrid)
-│   │   ├── library.tsx          # Tabbed Library page: Artists / Album Artists / Composers / Genres / Years; tabs lazy-mount on first visit, stay mounted (CSS hide/show)
-│   │   ├── artists.tsx          # Artist list (VirtualGrid, also reachable via /artists direct route)
-│   │   ├── album-artists.tsx    # Album artist list (VirtualGrid, also reachable via /album-artists)
-│   │   ├── composers.tsx        # Composer list (VirtualGrid, also reachable via /composers)
-│   │   ├── genres.tsx           # Genre list (VirtualGrid, also reachable via /genres)
-│   │   ├── years.tsx            # Year list (VirtualGrid, also reachable via /years)
-│   │   ├── folders-view.tsx     # Folder tree
-│   │   ├── playlists.tsx        # Unified playlist list: manual + smart playlists in one grid (smart badged ✨, built-ins locked); All/Manual/Smart filter; "New ▾" menu (manual vs smart). Routes each card to /playlists/:id or /smart-playlists/:id
-│   │   ├── playlist-detail.tsx  # Manual playlist track list; Play / Shuffle; drag-to-reorder (native HTML5 DnD → reorder_playlist_track); rename, delete, remove track
-│   │   ├── smart-playlist-detail.tsx # Smart playlist rule editor (reached from unified list); rules, match all/any, sort/limit, play/shuffle. (No standalone smart-playlists list page — merged into playlists.tsx)
-│   │   ├── queue.tsx            # Current playback queue (virtualized)
-│   │   └── settings.tsx         # Categorized sidebar layout (General / Appearance / Playback / Equalizer / Library / Advanced); reads ?tab= to deep-link a category (old ?tab=services maps to advanced). EQ tab: preset chips w/ active highlight, dB scale, user/device presets, stereo expander, dynamic EQ. Advanced tab: Last.fm panel (optional integration) + destructive actions
-│   ├── lib/
-│   │   ├── ipc.ts               # Typed invoke() wrappers for all Tauri commands
-│   │   ├── player-store.ts      # Zustand store — synced from "player-state" events (250ms)
-│   │   ├── theme-store.ts       # Zustand store — theme init + applyTheme()
-│   │   ├── command-palette-store.ts # Zustand store — palette open/close
-│   │   ├── lyrics-store.ts      # Zustand store — lyrics panel open/close/toggle
-│   │   ├── library-events.ts    # Shared event bus for "library-changed" events (scan, metadata save)
-│   │   ├── format.ts            # formatDuration() helper
-│   │   └── utils.ts             # shadcn cn() helper
-│   ├── App.tsx                  # HashRouter + Layout (TitleBar / Sidebar / Outlet / NowPlaying)
-│   └── main.tsx                 # React root — mounts App or MiniPlayer based on window.__HALO_MINI__
-├── docs/
-│   ├── ACTIVE_WORK.md           # In-flight tracker and v1.1 queue
-│   ├── HAZARDS.md               # Non-obvious gotchas and debugging notes
-│   └── plan/
-│       ├── halo-future-features.md        # Full feature roadmap (Tier 1–4)
-│       └── halo-cross-platform-architecture.md  # Architecture design + incremental migration plan (Phases A–E)
-├── package.json
-├── vite.config.ts               # @tailwindcss/vite plugin + @/ alias → ./src
-└── tsconfig.json                # paths: { "@/*": ["./src/*"] }
+Cargo.toml                      # workspace: crates/* ; [workspace.package] version; dev profiles; souvlaki patch
+crates/
+├── halo-core/                  # Pure domain logic — no I/O, no UI, no rodio (queue/shuffle/repeat, play &
+│                               # scrobble thresholds, NowPlayingController trait, RemoteCommand) + tests
+├── halo-backend/               # Everything except the UI (lib crate)
+│   ├── migrations/*.sql        # 001–010, wired by hand in db/migrations.rs
+│   └── src/
+│       ├── backend.rs          # Backend service container (Arc<Inner>): DB, PlayerHandle, ShuffleState,
+│       │                       # SleepTimer, LastFmState, OpenFilesState, FolderWatcher, media controls,
+│       │                       # AppPaths; typed state::<T>() lookups; BackendEvent channel; 250ms ticker;
+│       │                       # start_media_controls(hwnd); handle_launch_files / handle_forwarded_args
+│       ├── platform.rs         # Windows AUMID + Start-menu shortcut (SMTC name); call before any window
+│       ├── open_files.rs       # "Open with Halo": argv → playable paths, 300ms-coalesced enqueue
+│       ├── watcher.rs          # notify-based folder watcher, 2s debounce → rescan
+│       ├── audio/              # rodio engine (mod.rs), EQ + stereo expander, resampler, local input,
+│       │                       # media_controls.rs (souvlaki: SMTC / MPRIS / macOS)
+│       ├── db/                 # connection (WAL, FKs) + versioned migrations
+│       ├── scanner/            # walker, lofty metadata, art cache, waveform peaks, import_paths
+│       └── commands/           # Plain functions the UI calls (formerly Tauri commands):
+│                               # library, player, playlists, smart_playlists, search, eq, lyrics,
+│                               # metadata_editor, lastfm, scan, folders, stats, sleep_timer, ui (prefs),
+│                               # mini (mini-player prefs)
+└── halo-app/                   # The iced application, package/binary `halo`
+    ├── Cargo.toml              # deps + [package.metadata.packager] (installers, file associations)
+    │                           # + [package.metadata.generate-rpm] (.rpm)
+    ├── build.rs                # embeds icon.ico on Windows
+    ├── assets/                 # fonts (Geist, Geist Mono, lucide.ttf), lucide SVGs (filled variants,
+    │                           # spinners), app icons
+    ├── linux/halo.desktop.hbs  # deb desktop template (MimeType, StartupWMClass)
+    ├── linux/rpm/halo.desktop  # the same, rendered, for the .rpm — keep in sync
+    └── src/
+        ├── main.rs             # Linux: prefer X11/XWayland → AUMID → single-instance forward →
+        │                       # Backend::start → iced::daemon; open_url (browser keeps Wayland)
+        ├── app.rs              # Halo state, Message, update, view per window, subscriptions, window
+        │                       # management (hide/show main, open mini, close-to-tray), bg()/fire() helpers
+        ├── route.rs            # Route enum (old URL paths) + History (back/forward)
+        ├── theme.rs            # Tokens (light/dark from the old index.css) + every widget style fn
+        ├── icons.rs            # Lucide icon font glyphs (Icon enum → codepoint)
+        ├── ui.rs               # small builders: tooltip, art, stars, toggle, modal, progress, spinners…
+        ├── format.rs           # duration / relative time / plural helpers
+        ├── tray.rs             # tray-icon + menu (GTK thread on Linux), events subscription
+        ├── single_instance.rs  # local socket: forward argv/cwd to the running instance
+        ├── widgets/            # custom widgets: textline (ellipsis/marquee), surface (hover/click
+        │                       # container), popover (anchored overlay), waveform (seek bar)
+        ├── components/         # shell pieces: title_bar, sidebar, now_playing (+ sleep timer),
+        │                       # palette (Ctrl+K), lyrics (panel), mini (mini-player window)
+        └── pages/              # ONE FILE PER PAGE / TAB
+            ├── mod.rs          # Pages state, page Msg, route dispatch, load-on-enter, refresh hooks
+            ├── common.rs       # virtual list/grid, scroll memory, page header helpers
+            ├── tracks.rs       # shared track table (Songs / Recently Played / Most Played)
+            ├── songs.rs  recently_played.rs  most_played.rs  albums.rs  folders.rs  queue.rs
+            ├── library/        # mod.rs (tabs page) + cards.rs + artists, album_artists, composers,
+            │                   # genres, years (each also backs its standalone route)
+            ├── playlists.rs  playlist_detail.rs  smart_playlist.rs
+            ├── settings/       # mod.rs (nav + row helpers) + general, appearance, playback,
+            │                   # equalizer, library, advanced, lastfm
+            ├── dialogs.rs      # add-to-playlist + confirm dialogs
+            └── metadata/       # metadata editor: mod.rs, fields.rs, art.rs, crop.rs
 ```
 
-### Frontend ↔ backend communication
+### UI ↔ backend
 
-All cross-boundary calls go through Tauri IPC commands defined in `src-tauri/src/commands/`. The frontend invokes them via typed wrappers in `src/lib/ipc.ts`. Add new commands there and register them in `lib.rs`'s `invoke_handler!` macro.
+The UI owns a `Backend` (cheap `Clone`). Command functions in `halo_backend::commands` are called directly, off the UI thread, through `app::bg(&backend, |b| …, |result| Message::…)` (tokio `spawn_blocking`) or `app::fire` for fire-and-forget calls. Command bodies still take `&Mutex<Connection>` / `Backend` exactly as before; `b.state::<T>()` / `b.db()` / `b.player()` replace Tauri's managed state.
+
+Backend threads talk back through `BackendEvent`s (`PlayerState`, `LibraryChanged`, `ScanProgress`, `EqStateChanged`, `ThemeChanged`, `SleepTimer`, `RatingChanged`, `RaiseMain`, `RevealMain`) on an unbounded channel, consumed by the `backend_events` subscription in `app.rs`. Don't emit while holding the DB lock (HAZARDS).
+
+### Paths & data
+
+`AppPaths` resolves `dirs::data_dir()/com.saravix.halo` (DB) and `dirs::cache_dir()/com.saravix.halo` (album art, waveforms) — the same directories Tauri used, so existing libraries load unchanged (the DB stores absolute art paths).
 
 ### Database
 
-`rusqlite` with `features = ["bundled"]` (no system SQLite required). The connection is opened once in `setup()`, wrapped in `Mutex<Connection>`, and shared via Tauri's `State`. Migrations run at startup via a versioned runner in `migrations.rs` using `PRAGMA user_version` — safe to add new migration files without touching old ones.
+`rusqlite` with `bundled`. One `Mutex<Connection>` inside the `Backend`. Migrations run at startup via `PRAGMA user_version`; every new `.sql` file needs a unique number **and** an `if version < N` block in `db/migrations.rs`. Normalized schema with junction tables for multi-value fields; values are split by configurable delimiters at scan time.
 
-Normalized schema with junction tables for multi-value fields (artist, genre, composer). Multi-value metadata is split by configurable delimiters at scan time.
+### State ticker (backend.rs)
 
-### State ticker
+A 250 ms thread drives: sleep-timer tick, `player::handle_audio_events` (track end → advance + stats; near end → crossfade), output-device follow (~1 s, `PlayerHandle::rebuild_output`), `persist_playback_progress` (~1 s), Last.fm now-playing on track change, OS media-control sync, then sends `BackendEvent::PlayerState`. Resume-on-launch and folder watching are opt-in settings (see HAZARDS for their semantics).
 
-A 250ms background thread in `lib.rs` drives:
-1. `sleep_timer::tick()` — deadline countdown, fade-out volume ramp
-2. `player::handle_audio_events()` — drains `AudioEvent`s from `PlayerHandle`: `TrackFinished` advances the queue and records play stats; `NearEnd` starts crossfade if configured
-3. `sync_media_controls()` — pushes updated metadata/playback state to the OS media panel (SMTC/MPRIS) when track or status changes
-4. Output-device follow — polls the OS default device (~1s cadence) and calls `PlayerHandle::rebuild_output()` on a real change
-5. `player::persist_playback_progress()` — writes current index / position / status to the `app_state` key/value store so playback can be resumed next launch
-6. Emits `"player-state"` (carrying `FullPlayerState` including sleep timer info) — all windows receive it
+### Windows (iced daemon)
 
-Crossfade and track-advance are **event-driven** (Phase B): the audio worker fires `AudioEvent::NearEnd` / `AudioEvent::TrackFinished` via a channel; the ticker drains them — no polling of position or flags.
+| Window | Notes |
+|---|---|
+| Main | 1200×750 (min 900×600), undecorated with custom title bar + 6px edge resize handles, `exit_on_close_request: false` — the close button hides to tray or quits per the "Close button" setting. Hidden (never closed) while the mini player is open; its HWND backs Windows SMTC. |
+| Mini | 280×30, opened on demand, transparent (Linux), not resizable, always-on-top (pref, re-applied after map), skip-taskbar on Windows, position saved (300 ms debounce) in `app_state`. Hover controls appear once the pointer moves past the 30px art. |
 
-**Resume on launch** (opt-in via the Playback setting): at startup `player::resume_on_launch` reads the persisted index/position/status and, if enabled, reloads the saved track and seeks to position. It restores the prior play/pause state, defaulting to **paused** when the status is unknown to avoid surprise audio on launch.
+The tray (Play/Pause, Previous, Next, Show Halo, Mini player, Quit) and the single-instance socket both route through `Message`s.
 
-**Folder watching** (opt-in via the Library setting): `watcher.rs` watches all managed folders recursively (`notify` crate). Create/Remove/Modify events are coalesced through a 2s debounce, then trigger a full `run_scan`. `watcher::reconfigure` re-applies the live watch set on startup, on toggle, and whenever folders are added/removed.
+On Linux Halo runs under X11 (XWayland on a Wayland session) unless `HALO_WAYLAND=1`: Wayland can't hide a window, keep it on top or place it (HAZARDS).
 
-### shadcn/ui version note
+### Look & feel
 
-This project uses the newer shadcn/ui that targets `@base-ui/react` instead of `@radix-ui/react`. Key differences:
-- `TooltipProvider` takes `delay` (not `delayDuration`)
-- `TooltipTrigger` renders a native `<button>` directly — no `asChild` prop
-- Components are in `src/components/ui/`
+All colours come from `theme::t()` (active `Tokens`); never hard-code colours in pages — add a token or style fn to `theme.rs`. Icons are Lucide glyphs from the bundled icon font (`icons::icon(Icon::X, size)`), which inherit the button's text colour on hover; filled variants (heart, star, play) use SVGs via `ui::filled`. Text that must truncate uses `widgets::line(..)` (ellipsis) or `.marquee()` / `.looping()`.
 
-### Windows
+## Testing the UI headless
 
-Two windows — both `decorations: false`:
-
-| Window | Label | Notes |
-|---|---|---|
-| Main | `main` | Full player UI. Hidden (not closed) when X is clicked or mini player opens. `skip_taskbar` toggled dynamically — false when visible, true when hidden. |
-| Mini player | `mini` | 280×30 floating overlay, `always_on_top`, `skip_taskbar: true` always. Controls appear on hover past the album art area (30px threshold). Position persisted in DB. Built with `transparent(true)` on all platforms (on Linux this is required to bypass the Wayland compositor minimum height; on Windows/macOS it is a no-op since the content covers the window fully). |
-
-The tray handles show/hide for both windows. `tray::show_main_window` hides the mini player and restores the main window's taskbar entry.
+See "Testing the UI headless (Xvfb)" in [docs/HAZARDS.md](docs/HAZARDS.md): `xvfb-run`/`Xvfb`, `xdotool windowfocus` before typing, a null ALSA device, and `import -window root` for screenshots.
 
 ## Development phases
 
 | Phase | Status | Focus |
 |---|---|---|
-| 1 — Foundation | ✅ Complete | Tauri setup, SQLite, app shell, settings/folder management |
-| 2 — Scanning | ✅ Complete | lofty metadata, folder walker, album art, progress events |
-| 3 — Core views | ✅ Complete | Songs table, albums grid, artists, genres, folders tree |
-| 4 — Playback | ✅ Complete | Audio engine, queue, now-playing wired up |
-| 5 — Playlists + search | ✅ Complete | Playlist CRUD, Ctrl+K global search |
-| 6 — Polish | ✅ Complete | Media keys, tray, themes, virtualization, crossfade |
-| v1.1 — User expectations | 🚧 In progress | Play counts & ratings ✅, Sleep timer ✅, Mini player polish ✅, Lyrics ✅, Metadata editor ✅, Library tabbed view + VirtualGrid ✅, Now-playing UI polish ✅; EQ, smart playlists, Last.fm remaining |
-| Arch A — Extract core | ✅ Complete | Cargo workspace; `halo-core` crate with `RepeatMode`, `ShuffleHistory`, `next_index`, `should_crossfade`, `is_played`; 23 unit tests |
-| Arch B — Event-driven audio | ✅ Complete | `PositionSource` (sample-clock position), `AudioEvent` channel replaces `finished_flag`/`crossfading` atomics, `MediaInput` trait + `LocalFsInput`, natural-end play-stat bug fixed |
-| Arch C — Platform ports | ✅ Complete | `NowPlayingController` trait in `halo-core`, `RemoteCommand` unifies hotkey vocab, `MediaControlsHandle` implements the trait, `handle_remote_command` replaces `handle_hotkey` |
-| Arch D — Android | ⏳ Pending | `MediaStoreSource`, Android `MediaSession` plugin, audio-focus handling, responsive frontend shell, `sources` schema migration |
-| Arch E — iOS | ⏳ Pending | Document-picker/MediaLibrary source, `MPNowPlayingInfoCenter`, background-audio mode |
+| 1–6 | ✅ Complete | Foundation, scanning, core views, playback, playlists + search, polish |
+| v1.1 — User expectations | 🚧 In progress | ratings, sleep timer, mini player, lyrics, metadata editor, library tabs ✅; EQ, smart playlists, Last.fm |
+| Arch A–C | ✅ Complete | `halo-core` extraction, event-driven audio, platform ports |
+| iced port | ✅ Complete | Tauri/React → iced; `halo-backend` + `halo-app` crates; cargo-packager installers |
+| Arch D — Android / E — iOS | ⏳ Pending | (designed against the old webview shell — needs a re-plan for iced) |

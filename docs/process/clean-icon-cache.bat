@@ -8,7 +8,7 @@ taskkill /F /IM "Halo.exe" >nul 2>&1
 taskkill /F /IM "halo.exe" >nul 2>&1
 
 echo [2/6] Running cargo clean to force icon re-embed...
-pushd "%~dp0..\..\src-tauri"
+pushd "%~dp0..\.."
 cargo clean -p halo
 popd
 
@@ -27,6 +27,6 @@ echo [6/6] Restarting Explorer...
 start explorer.exe
 
 echo.
-echo Done. Now run: npm run tauri dev
+echo Done. Now run: cargo run -p halo
 echo If Halo is pinned to the taskbar, unpin and re-pin it to refresh.
 pause

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Categories=AudioVideo;Audio;Music;
+Comment=A desktop music player
+Exec=halo %F
+Icon=halo
+Name=Halo Music Player
+StartupWMClass=com.saravix.halo
+Terminal=false
+Type=Application
+MimeType=audio/mpeg;audio/flac;audio/x-flac;audio/mp4;audio/x-m4a;audio/aac;audio/ogg;audio/x-vorbis+ogg;audio/x-flac+ogg;audio/vnd.wave;audio/x-wav;audio/wav;audio/x-aiff;audio/aiff
