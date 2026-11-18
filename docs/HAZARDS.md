@@ -197,7 +197,7 @@ Each entry: **symptom → cause → fix**.
 1. Fetch `window::scale_factor(main)`.
 2. `commands::mini::open_position_physical` clamps the saved physical position into the nearest monitor's work area (Win32 `MonitorFromPoint` + `GetMonitorInfoW`), and the result is divided by the scale.
 
-Saves multiply by the same scale. `transparent: true` is set only on Linux (it lets GTK honour the 30 px height); on Windows a transparent wgpu surface can leave the window blank.
+Saves multiply by the same scale and clamp again; a window dropped outside the work area is moved back, as the Tauri build did. `transparent: true` is set only on Linux (it lets GTK honour the 30 px height); on Windows a transparent wgpu surface can leave the window blank.
 
 ---
 

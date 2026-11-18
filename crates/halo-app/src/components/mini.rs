@@ -213,7 +213,21 @@ pub fn update(app: &mut Halo, m: Msg) -> Task<Message> {
             let Some(p) = st.pending_pos.take() else { return Task::none() };
             let scale = if st.scale > 0.0 { st.scale } else { 1.0 };
             let (x, y) = ((p.x * scale).round() as i32, (p.y * scale).round() as i32);
-            crate::app::fire(&app.backend, move |b| prefs::save_position(b.db(), x, y))
+            // Like the Tauri build: a window dropped partly off-screen or
+            // under the taskbar snaps back into the work area (Windows).
+            let (w, h) = ((W * scale).round() as i32, (H * scale).round() as i32);
+            let (cx, cy) = match prefs::work_area_near(x + w / 2, y + h / 2) {
+                Some(area) => prefs::clamp_into(x, y, w, h, area),
+                None => (x, y),
+            };
+            let save = crate::app::fire(&app.backend, move |b| prefs::save_position(b.db(), cx, cy));
+            match app.mini_id {
+                Some(id) if (cx, cy) != (x, y) => Task::batch([
+                    window::move_to(id, Point::new(cx as f32 / scale, cy as f32 / scale)),
+                    save,
+                ]),
+                _ => save,
+            }
         }
         Msg::OpenWith(scale) => {
             st.opening = false;
