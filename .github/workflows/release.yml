@@ -311,10 +311,13 @@ jobs:
   # Install the .deb on a clean Debian 12 and 13 and launch it under Xvfb:
   # every dependency must resolve, every library load, and the app must
   # start without crashing.
+  # Runs even if another OS's build failed or never got a runner (macOS
+  # capacity): it only needs the Linux packages, and a failed Linux build
+  # fails it at the download step. Publishing still needs every build.
   test-debian:
     name: Test .deb · ${{ matrix.label }}
     needs: [create-release, build]
-    if: needs.create-release.outputs.deb == 'true'
+    if: ${{ !cancelled() && needs.create-release.outputs.deb == 'true' }}
     strategy:
       fail-fast: false
       matrix:
