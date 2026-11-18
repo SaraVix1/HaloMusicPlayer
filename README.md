@@ -62,6 +62,8 @@ Halo uses `major.minor.patch` versions starting at `0.1.0`. Every push to `main`
 
 To publish a release, open **Actions → Release → Run workflow** on `main`. It builds the current version and publishes it as `v<version> (Beta)`. Pushing a `v*` tag works too.
 
+To publish a test build from any other branch, pick that branch in **Run workflow**. It is released as `v<version>-<branch>.<run number>` (for example `v0.1.3-iced-port.12`), a pre-release that never becomes "Latest".
+
 ## Building from source
 
 ### Prerequisites

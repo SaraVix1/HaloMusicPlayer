@@ -33,7 +33,7 @@ cargo packager --release -p halo --formats deb,appimage
 python3 scripts/bump-version.py <version>
 ```
 
-**Versioning:** Halo is in beta. `.github/workflows/bump-version.yml` bumps the patch version on every push to `main` (skipped when the commit title contains `[skip bump]`); `release.yml` builds installers with cargo-packager and publishes a "(Beta)" pre-release for a pushed `v*` tag, or — when run manually from `main` — for `v<current version>`, creating that tag.
+**Versioning:** Halo is in beta. `.github/workflows/bump-version.yml` bumps the patch version on every push to `main` (skipped when the commit title contains `[skip bump]`); `release.yml` builds installers with cargo-packager and publishes a "(Beta)" pre-release for a pushed `v*` tag, or — when run manually from `main` — for `v<current version>`, creating that tag. A manual run from any other branch publishes a branch build tagged `v<version>-<branch>.<run number>` (pre-release, never "Latest").
 
 ## Architecture
 

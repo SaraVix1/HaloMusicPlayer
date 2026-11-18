@@ -17,9 +17,13 @@ jobs:
       tag: ${{ steps.create-release.outputs.result && fromJSON(steps.create-release.outputs.result).tag }}
     steps:
       - uses: actions/checkout@v5
-      # A v* tag push releases that tag. A manual run from main releases the
-      # current version: it creates the tag v<[workspace.package] version> on
-      # this commit. Manual runs from any other branch are refused.
+      # What gets released:
+      # - a v* tag push releases that tag;
+      # - a manual run from main releases the current version: it creates the
+      #   tag v<[workspace.package] version> on this commit;
+      # - a manual run from any other branch releases a branch build: it
+      #   creates the semver pre-release tag v<version>-<branch>.<run number>
+      #   (e.g. v0.1.3-iced-port.12) on this commit, never marked "Latest".
       - name: Create draft release
         id: create-release
         uses: actions/github-script@v8
@@ -27,34 +31,61 @@ jobs:
           script: |
             const fs = require('fs')
             const { owner, repo } = context.repo
-            let tag
-            if (context.ref.startsWith('refs/tags/v')) {
-              tag = context.ref.replace('refs/tags/', '')
-            } else if (context.ref === 'refs/heads/main') {
+
+            const readVersion = () => {
               const toml = fs.readFileSync('Cargo.toml', 'utf8')
               const m = /\[workspace\.package\][^\[]*?\nversion\s*=\s*"([^"]+)"/.exec(toml)
-              if (!m) { core.setFailed('version not found in [workspace.package]'); return }
-              tag = `v${m[1]}`
-              const existing = await github.rest.git
-                .getRef({ owner, repo, ref: `tags/${tag}` })
-                .catch((e) => (e.status === 404 ? null : Promise.reject(e)))
-              if (existing) {
+              if (!m) throw new Error('version not found in [workspace.package] of Cargo.toml')
+              return m[1]
+            }
+            const tagExists = async (t) =>
+              !!(await github.rest.git
+                .getRef({ owner, repo, ref: `tags/${t}` })
+                .catch((e) => (e.status === 404 ? null : Promise.reject(e))))
+
+            let tag
+            let name
+            let branchBuild = false
+            if (context.ref.startsWith('refs/tags/v')) {
+              tag = context.ref.replace('refs/tags/', '')
+              name = `${tag} (Beta)`
+            } else if (context.ref === 'refs/heads/main') {
+              tag = `v${readVersion()}`
+              name = `${tag} (Beta)`
+              if (await tagExists(tag)) {
                 core.setFailed(`Tag ${tag} already exists. Push a new commit to main (it bumps the version) and run again.`)
                 return
               }
+            } else if (context.ref.startsWith('refs/heads/')) {
+              const branch = context.ref.replace('refs/heads/', '')
+              // Semver pre-release identifiers: [0-9A-Za-z-] separated by dots.
+              const slug = branch.replace(/[^0-9A-Za-z-]+/g, '-').replace(/^-+|-+$/g, '') || 'branch'
+              tag = `v${readVersion()}-${slug}.${context.runNumber}`
+              name = `${tag} (Beta, ${branch} branch build)`
+              branchBuild = true
+              if (await tagExists(tag)) {
+                core.setFailed(`Tag ${tag} already exists.`)
+                return
+              }
             } else {
-              core.setFailed(`Release must run from main or a v* tag, not ${context.ref}`)
+              core.setFailed(`Release must run from a branch or a v* tag, not ${context.ref}`)
               return
             }
+
             const { data } = await github.rest.repos.createRelease({
               owner,
               repo,
               tag_name: tag,
               target_commitish: context.sha,
-              name: `${tag} (Beta)`,
+              name,
+              body: branchBuild
+                ? `Branch build of \`${context.ref.replace('refs/heads/', '')}\` at ${context.sha.slice(0, 7)} — for testing; not a regular release.`
+                : undefined,
               draft: true,
               // Halo is in beta — publish every release as a pre-release
               prerelease: true,
+              // Branch builds must never become the "Latest" release.
+              make_latest: branchBuild ? 'false' : 'legacy',
             })
             return { id: data.id, tag }
 
