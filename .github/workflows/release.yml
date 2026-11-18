@@ -333,11 +333,15 @@ jobs:
           path: dist
 
       - name: Install the .deb
+        shell: bash
         run: |
-          set -e
+          set -eo pipefail
           apt-get update
           apt-get install -y ./dist/*.deb
-          dpkg -s halo | grep -E '^(Version|Depends|Suggests):'
+          # The package is named after productName (halo-music-player), not
+          # the binary — read it from the .deb rather than hard-coding it.
+          pkg=$(dpkg-deb -f dist/*.deb Package)
+          dpkg -s "$pkg" | grep -E '^(Package|Version|Depends|Suggests):'
 
       - name: Check libraries
         run: |

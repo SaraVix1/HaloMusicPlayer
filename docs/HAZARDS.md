@@ -223,6 +223,16 @@ Saves multiply by the same scale and clamp again; a window dropped outside the w
 
 ---
 
+## The `.deb` package is `halo-music-player`, not `halo`
+
+**Symptom.** `dpkg -s halo` / `apt remove halo` says the package is not installed, although `/usr/bin/halo` exists. Release #15's `.deb` install test failed on Debian 12 and 13 this way (`dpkg -s halo | grep …` → exit 1).
+
+**Cause.** cargo-packager names the Debian package after `productName` in kebab case ("Halo Music Player" → `halo-music-player`). The binary, the `.deb` file name (`halo_<version>_amd64.deb`) and `halo.desktop` follow the binary name instead.
+
+**Fix.** Use `halo-music-player` for dpkg/apt commands, or read the name from the file (`dpkg-deb -f halo_*.deb Package`), as the release workflow's install test does. Changing `productName` renames the package, so an upgrade would install alongside the old one instead of replacing it.
+
+---
+
 ## iced: `renderer.with_layer` escapes the parent's clip
 
 **Symptom.** Text in a virtualised list paints outside the table / scrollable bounds (e.g. a half-scrolled row's title drawn over the border).
