@@ -150,10 +150,7 @@ pub fn update(app: &mut Halo, msg: Msg) -> Task<Message> {
             Task::none()
         }
         Msg::OpenEq => app.update(Message::Navigate(Route::Settings(Some(SettingsTab::Equalizer)))),
-        Msg::ToggleLyrics => {
-            app.lyrics.open = !app.lyrics.open;
-            Task::none()
-        }
+        Msg::ToggleLyrics => crate::components::lyrics::toggle(app),
         Msg::SleepToggle => {
             st.sleep_open = !st.sleep_open;
             Task::none()

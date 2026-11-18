@@ -843,3 +843,20 @@ pub fn scrollbar() -> scrollable::Scrollbar {
 pub fn vscroll() -> scrollable::Direction {
     scrollable::Direction::Vertical(scrollbar())
 }
+
+/// Multi-line editor (`textarea`): `bg-muted/40 border rounded-md`,
+/// ring on focus.
+pub fn editor(_: &Theme, status: iced::widget::text_editor::Status) -> iced::widget::text_editor::Style {
+    let k = t();
+    let border_c = match status {
+        iced::widget::text_editor::Status::Focused { .. } => k.ring,
+        _ => k.border,
+    };
+    iced::widget::text_editor::Style {
+        background: Background::Color(a(k.muted, 0.4)),
+        border: border(border_c, 1.0, R_MD),
+        placeholder: k.muted_fg,
+        value: k.foreground,
+        selection: a(k.ring, 0.4),
+    }
+}

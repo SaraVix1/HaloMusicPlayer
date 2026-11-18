@@ -350,6 +350,9 @@ pub fn subscription(app: &Halo) -> Option<Subscription<Message>> {
             _ => None,
         }));
     }
+    if metadata::busy(app) {
+        subs.push(iced::time::every(std::time::Duration::from_millis(16)).map(|_| Message::Noop));
+    }
     if let Some(s) = settings::subscription(app) {
         subs.push(s);
     }

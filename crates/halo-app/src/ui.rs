@@ -455,3 +455,41 @@ pub fn small_button<'a, M: Clone + 'a>(
         .on_press_maybe(on_press)
         .into()
 }
+
+// ── Spinners ──────────────────────────────────────────────────────────────────
+
+static SVG_REFRESH: LazyLock<svg::Handle> = LazyLock::new(|| {
+    svg::Handle::from_memory(include_bytes!("../assets/lucide/refresh-cw.svg").as_slice())
+});
+static SVG_LOADER: LazyLock<svg::Handle> = LazyLock::new(|| {
+    svg::Handle::from_memory(include_bytes!("../assets/lucide/loader-circle.svg").as_slice())
+});
+
+#[derive(Debug, Clone, Copy)]
+pub enum Spinner {
+    Refresh,
+    Loader,
+}
+
+/// `animate-spin` icon: `angle` (radians) is advanced by the caller's
+/// animation tick. `color` tints the stroke.
+pub fn spin<'a>(which: Spinner, size: f32, angle: f32, color: Color) -> svg::Svg<'a> {
+    let handle = match which {
+        Spinner::Refresh => SVG_REFRESH.clone(),
+        Spinner::Loader => SVG_LOADER.clone(),
+    };
+    svg(handle)
+        .width(size)
+        .height(size)
+        .rotation(iced::Rotation::Floating(iced::Radians(angle)))
+        .style(move |_, _| svg::Style { color: Some(color) })
+}
+
+/// Current spinner angle derived from wall-clock time (1 turn per second).
+pub fn spin_angle() -> f32 {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() % 1000)
+        .unwrap_or(0);
+    ms as f32 / 1000.0 * std::f32::consts::TAU
+}

@@ -52,6 +52,8 @@ pub fn fire(
 pub enum Message {
     Noop,
     Error(String),
+    /// Several messages handled in order.
+    Batch(Vec<Message>),
     Backend(BackendEvent),
 
     // Navigation
@@ -210,6 +212,12 @@ impl Halo {
         self.player.player.status == PlaybackStatus::Playing
     }
 
+    /// Change the theme preference (light / dark / system) and apply it now.
+    pub fn set_theme_pref(&mut self, pref: String) {
+        self.theme_pref = pref;
+        self.apply_theme();
+    }
+
     fn apply_theme(&self) {
         let dark = match self.theme_pref.as_str() {
             "light" => false,
@@ -246,6 +254,9 @@ impl Halo {
             Message::Error(e) => {
                 eprintln!("error: {e}");
                 Task::none()
+            }
+            Message::Batch(msgs) => {
+                Task::batch(msgs.into_iter().map(|m| self.update(m)).collect::<Vec<_>>())
             }
             Message::Backend(ev) => self.on_backend_event(ev),
 
@@ -610,6 +621,9 @@ impl Halo {
             }),
         ];
         if let Some(s) = pages::subscription(self) {
+            subs.push(s);
+        }
+        if let Some(s) = lyrics::subscription(self) {
             subs.push(s);
         }
         if let Some(s) = mini::subscription(self) {
