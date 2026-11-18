@@ -29,6 +29,12 @@ impl SleepTimerInner {
 
 pub struct SleepTimer(pub Mutex<SleepTimerInner>);
 
+impl Default for SleepTimer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SleepTimer {
     pub fn new() -> Self {
         Self(Mutex::new(SleepTimerInner {

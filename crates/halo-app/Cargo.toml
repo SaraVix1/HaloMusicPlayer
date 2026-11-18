@@ -29,3 +29,44 @@ gtk = "0.18"
 
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+# ── Installers (cargo-packager) ───────────────────────────────────────────────
+# `cargo install cargo-packager --locked`, then from the repo root:
+#   cargo build --release -p halo && cargo packager --release -p halo
+# Produces NSIS/MSI (Windows), .deb/AppImage (Linux), .app/.dmg (macOS).
+[package.metadata.packager]
+productName = "Halo Music Player"
+identifier = "com.saravix.halo"
+publisher = "Saravix"
+category = "Music"
+description = "A desktop music player"
+binaries = [{ path = "halo", main = true }]
+icons = [
+    "assets/icons/32x32.png",
+    "assets/icons/128x128.png",
+    "assets/icons/64x64.png",
+    "assets/icons/icon.png",
+    "assets/icons/icon.icns",
+    "assets/icons/icon.ico",
+]
+formats = ["nsis", "wix", "deb", "appimage", "dmg", "app"]
+# Keep in sync with halo_backend::open_files::PLAYABLE_EXTENSIONS.
+fileAssociations = [
+    { extensions = ["mp3"], mimeType = "audio/mpeg", name = "MP3 Audio", description = "MP3 Audio", role = "viewer" },
+    { extensions = ["flac"], mimeType = "audio/flac;audio/x-flac", name = "FLAC Audio", description = "FLAC Audio", role = "viewer" },
+    { extensions = ["m4a"], mimeType = "audio/mp4;audio/x-m4a", name = "MPEG-4 Audio", description = "MPEG-4 Audio", role = "viewer" },
+    { extensions = ["aac"], mimeType = "audio/aac", name = "AAC Audio", description = "AAC Audio", role = "viewer" },
+    { extensions = ["ogg", "oga"], mimeType = "audio/ogg;audio/x-vorbis+ogg;audio/x-flac+ogg", name = "Ogg Audio", description = "Ogg Audio", role = "viewer" },
+    { extensions = ["wav"], mimeType = "audio/vnd.wave;audio/x-wav;audio/wav", name = "WAV Audio", description = "WAV Audio", role = "viewer" },
+    { extensions = ["aiff", "aif"], mimeType = "audio/x-aiff;audio/aiff", name = "AIFF Audio", description = "AIFF Audio", role = "viewer" },
+]
+
+[package.metadata.packager.deb]
+desktopTemplate = "linux/halo.desktop.hbs"
+depends = ["libasound2", "libgtk-3-0", "libayatana-appindicator3-1", "libxdo3"]
+
+[package.metadata.packager.nsis]
+installMode = "currentUser"

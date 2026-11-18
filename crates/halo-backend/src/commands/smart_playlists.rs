@@ -82,7 +82,7 @@ fn validate_direction(dir: &str) -> bool {
 }
 
 fn validate_limit(limit: Option<i64>) -> bool {
-    limit.map_or(true, |n| n > 0 && n <= 10_000)
+    limit.is_none_or(|n| n > 0 && n <= 10_000)
 }
 
 // ---------------------------------------------------------------------------

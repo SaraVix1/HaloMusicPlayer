@@ -322,7 +322,7 @@ impl Backend {
                     commands::player::handle_audio_events(&app);
 
                     // Check for output device changes every ~1 s (4 × 250 ms).
-                    if tick_count % 4 == 0 {
+                    if tick_count.is_multiple_of(4) {
                         if let Some(dev) = commands::eq::get_current_device_name() {
                             if dev != last_device {
                                 // Follow the system default: reopen the audio output on the
@@ -350,7 +350,7 @@ impl Backend {
                         }
                     }
                     // Persist playback progress (~1 s cadence) for resume-on-launch.
-                    if tick_count % 4 == 0 {
+                    if tick_count.is_multiple_of(4) {
                         commands::player::persist_playback_progress(&app);
                     }
                     let state = match commands::player::get_player_state(app.clone()) {
@@ -393,7 +393,7 @@ impl Backend {
         let track_changed = state.player.track_id != *last_track_id;
         let status_changed = Some(state.player.status) != *last_status;
         // Refresh position roughly every second (4 ticks at 250 ms) so the SMTC scrubber stays accurate.
-        let refresh_position = tick_count % 4 == 0;
+        let refresh_position = tick_count.is_multiple_of(4);
 
         // Push playback state FIRST so SMTC is not in Stopped when metadata arrives —
         // Windows drops metadata pushed while the transport is in the Stopped state.

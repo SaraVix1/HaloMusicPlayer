@@ -6,45 +6,23 @@ Each entry: **symptom → cause → fix**.
 
 ---
 
-## Tauri: don't build secondary webviews on demand
-
-**Symptom.** A `WebviewWindowBuilder` window opens, but the content is blank white, no console errors, and DevTools (F12) won't open on it.
-
-**Cause.** Building a Tauri v2 webview lazily — inside an IPC command, after the app is fully running — can leave the webview in a half-initialized state on Windows. The OS window appears but the WebView2 process doesn't fully attach.
-
-**Fix.** Build secondary windows during `setup()` with `.visible(false)`, then just `show()` / `hide()` them on demand. See [src-tauri/src/commands/window.rs](../src-tauri/src/commands/window.rs) (`build_mini_window`) and how it's called from [src-tauri/src/lib.rs](../src-tauri/src/lib.rs) `setup()`.
-
----
-
 ## MSVC link.exe shadowed by Git's link.exe
 
 **Symptom.** `cargo build` / `cargo check` fails with cryptic linker errors, or links the wrong binary on Windows.
 
 **Cause.** Git for Windows ships its own `link.exe` (a symlink utility). If Git's `usr\bin` is on `PATH` before Visual Studio's MSVC `link.exe`, Cargo invokes the wrong one.
 
-**Fix.** We sidestep this entirely by configuring `linker = "rust-lld"` in [src-tauri/.cargo/config.toml](../src-tauri/.cargo/config.toml) — rust-lld is bundled with rustup and resolved via the toolchain, not PATH, so Git's `link.exe` can't interfere. Don't remove that config without a reason. If you do need MSVC `link.exe`, install Visual Studio's **"Desktop development with C++"** workload and use the **Developer PowerShell for VS** (not a plain shell).
+**Fix.** We sidestep this entirely by configuring `linker = "rust-lld"` in [.cargo/config.toml](../.cargo/config.toml) — rust-lld is bundled with rustup and resolved via the toolchain, not PATH, so Git's `link.exe` can't interfere. Don't remove that config without a reason. If you do need MSVC `link.exe`, install Visual Studio's **"Desktop development with C++"** workload and use the **Developer PowerShell for VS** (not a plain shell).
 
 ---
 
 ## Cargo won't re-embed a new `icon.ico`
 
-**Symptom.** You replaced `src-tauri/icons/icon.ico`, ran `npm run tauri dev`, and the old icon is still baked into the executable / shown in the taskbar.
+**Symptom.** You replaced `crates/halo-app/assets/icons/icon.ico`, rebuilt, and the old icon is still shown in the taskbar / Explorer.
 
-**Cause.** `tauri-build` embeds `icon.ico` as a Windows resource at compile time. Cargo's incremental build doesn't track the `.ico` as an input, so it skips the resource compile.
+**Cause.** [crates/halo-app/build.rs](../crates/halo-app/build.rs) embeds `icon.ico` as a Windows resource (`winresource`). It declares `rerun-if-changed`, but Windows also caches shell icons aggressively.
 
 **Fix.** `cargo clean -p halo` to force a full rebuild. The helper script [docs/process/clean-icon-cache.bat](process/clean-icon-cache.bat) does this plus flushes the Windows shell icon cache. See [docs/process/updating-app-icon.md](process/updating-app-icon.md).
-
----
-
-## shadcn/ui here uses `@base-ui/react`, not `@radix-ui`
-
-**Symptom.** You copy a shadcn example from the public docs and the props don't match — `delayDuration`, `asChild`, etc. produce TypeScript errors or no-op at runtime.
-
-**Cause.** This project uses the newer shadcn/ui flavor that targets `@base-ui/react`. The public docs default to the `@radix-ui` flavor.
-
-**Fix.** Match the API of components already in [src/components/ui/](../src/components/ui/). Common deltas:
-- `TooltipProvider` takes `delay`, not `delayDuration`
-- `TooltipTrigger` renders a native `<button>` directly — no `asChild` prop
 
 ---
 
@@ -54,64 +32,7 @@ Each entry: **symptom → cause → fix**.
 
 **Cause.** Windows SMTC looks up the display name by matching the process's AppUserModel.ID against a Start Menu shortcut whose `System.AppUserModel.ID` property matches the same string. No shortcut → no name.
 
-**Fix.** `set_app_user_model_id()` in [src-tauri/src/lib.rs](../src-tauri/src/lib.rs) installs the shortcut itself (the same approach Spotify / Discord / VS Code use). Don't remove it.
-
----
-
-## `:hover` / `mouseenter` is sticky when a hidden Tauri window is re-shown
-
-**Symptom.** A secondary Tauri window (e.g. mini player) is `hide()`'d, then `show()`'d again. On second open it renders as if the cursor were already hovering — CSS `:hover` rules apply, `onMouseEnter` fires — even though the user hasn't moved the mouse since show.
-
-**Cause.** Hover state is computed from the OS's reported cursor position relative to the window. When the window becomes visible at coordinates where the cursor already is, WebView2 reports the cursor as being inside the window on first paint. Synthetic `mouseenter` may also fire even though there was no boundary-crossing motion. `visibilitychange` resetting state isn't enough either — the synthetic enter races the reset.
-
-**Fix.** Don't trust `:hover` / `mouseenter` to mean "the user is interacting." Gate the hovered state on **accumulated mouse movement** inside the element via `onMouseMove`: sum `Math.hypot(dx, dy)` between successive points and only flip to `hovered = true` past a small threshold (e.g. 8 px). Synthetic events at a static position contribute zero distance, so the controls stay hidden until the user actually moves the mouse. Reset the accumulator on `mouseleave` and on `visibilitychange` away from "visible". See [src/components/mini-player.tsx](../src/components/mini-player.tsx).
-
----
-
-## Linux/WebKitGTK: `mouseleave` doesn't fire exiting top/left/right of the mini player
-
-**Symptom.** The mini player's control overlay (play/pause, seek bar) shows on hover, correctly hides when the cursor exits through the **bottom** edge, but stays stuck visible when the cursor exits through the **top, left, or right** edge. Windows doesn't have this problem.
-
-**Cause.** Confirmed via temporary `console.log` instrumentation on every `mousemove` (the mini window has `.devtools(true)`, so DevTools is reachable by right-click): `mousemove` events genuinely **stop** arriving in every direction once the cursor leaves — so it isn't a "leave event never fires because the cursor never truly left" situation. The leave-edge case is specifically that neither `onMouseLeave` (element bounding-box) nor `document`-level `mouseout` with `relatedTarget === null` fire on this WebKitGTK build for the top/left/right transitions, even though the bottom transition fires a normal `mouseleave` correctly. This looks like a WebKitGTK pointer-leave delivery gap specific to certain edges, not a CSS or layout bug — exact compositor mechanism unconfirmed.
-
-**Fix.** Don't depend on any leave/exit event for the top/left/right case. While `hovered` is true, run a `window`-level `mousemove` listener that resets a "last moved at" timestamp, polled every 150 ms; if no movement arrives for `IDLE_MS` (600 ms), assume the cursor left and revert to the title view. This is event-independent — it only requires `mousemove` to *stop*, which is confirmed to happen reliably in every direction. The real `mouseleave`/`mouseout` paths are kept as fast-paths (instant reset, still used by Windows and the bottom edge on Linux); the idle-timeout is the universal fallback. See the three stacked `useEffect`s around `hovered` in [src/components/mini-player.tsx](../src/components/mini-player.tsx).
-
----
-
-## Windows 11 rounds borderless window corners even with `decorations: false`
-
-**Symptom.** A Tauri window with `.decorations(false)` still shows ~6 px rounded corners on Windows 11, no matter what CSS the page applies — `border-radius: 0` on `html/body/root` has no effect, because the corners are clipped by the OS compositor outside the webview.
-
-**Cause.** Windows 11's DWM applies its default `DWMWCP_DEFAULT` (rounded) corner preference to top-level windows. CSS can only style what's inside the webview; the window outline is the OS's.
-
-**Fix.** Call `DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &DWMWCP_DONOTROUND, 4)` after the window is built. See `apply_sharp_corners` in [src-tauri/src/commands/window.rs](../src-tauri/src/commands/window.rs). Requires the `Win32_Graphics_Dwm` feature on the `windows` crate.
-
----
-
-## Tauri's `window.hwnd()` HWND won't compile against direct `windows` crate calls
-
-**Symptom.** You call a Win32 API like `DwmSetWindowAttribute(window.hwnd()?, …)` and get a cryptic compile error: "there are multiple different versions of crate `windows` in the dependency graph", with mentions of `windows_core::Param<HWND>` and `core::r#type::TypeKind` not being implemented.
-
-**Cause.** Tauri internally depends on a different version of the `windows` crate than the one we declare in `Cargo.toml`. `window.hwnd()` returns an HWND from Tauri's version; Win32 functions we call expect HWND from our version. The two types are nominally the same but Rust treats them as distinct, and no `Param<HWND>` impl bridges them.
-
-**Fix.** Convert through the underlying raw pointer:
-
-```rust
-let raw = window.hwnd().ok()?;
-let hwnd = windows::Win32::Foundation::HWND(raw.0 as *mut core::ffi::c_void);
-```
-
-`HWND.0` is a `*mut c_void` in both versions, so this round-trip is sound. See `apply_sharp_corners` in [src-tauri/src/commands/window.rs](../src-tauri/src/commands/window.rs).
-
----
-
-## VirtualGrid renders nothing when loading/empty states use a separate return branch
-
-**Symptom.** A component using `VirtualGrid` shows nothing — not even the loading text or empty state — after data loads. `cols` stays 0. Items never appear.
-
-**Cause.** `useLayoutEffect` measures the scroll container and attaches a `ResizeObserver` to `parentRef.current`. If loading/empty states are returned from an *early `return`* that doesn't include the `ref={parentRef}` div, the effect fires with `el = null`, bails out, and the `ResizeObserver` never attaches. When loading finishes and the component re-renders to the main branch (which does have the ref), `useLayoutEffect` does **not** re-run because its deps (`[minItemWidth, gap, px]`) haven't changed — so `cols` stays 0 and the grid never renders.
-
-**Fix.** Always render the same `ref`'d div regardless of state. Put loading/empty content *inside* that div as conditional children, never as early returns with a different root element. See [src/components/virtual-grid.tsx](../src/components/virtual-grid.tsx).
+**Fix.** `set_app_user_model_id()` in [crates/halo-backend/src/platform.rs](../crates/halo-backend/src/platform.rs) (called first thing in `main`) installs the shortcut itself (the same approach Spotify / Discord / VS Code use). Don't remove it.
 
 ---
 
@@ -121,17 +42,17 @@ let hwnd = windows::Win32::Foundation::HWND(raw.0 as *mut core::ffi::c_void);
 
 **Cause.** The outer `SELECT` sees only the column *name* produced by the subquery, not the original table alias `a`. The alias `a` is scoped to the inner query and invisible outside it.
 
-**Fix.** Use the bare column name in the outer GROUP_CONCAT: `SELECT GROUP_CONCAT(name, '||') FROM (SELECT a.name FROM …)`. The derived column is named `name`, not `a.name`. See [src-tauri/src/commands/library.rs](../src-tauri/src/commands/library.rs).
+**Fix.** Use the bare column name in the outer GROUP_CONCAT: `SELECT GROUP_CONCAT(name, '||') FROM (SELECT a.name FROM …)`. The derived column is named `name`, not `a.name`. See [crates/halo-backend/src/commands/library.rs](../crates/halo-backend/src/commands/library.rs).
 
 ---
 
 ## Cargo ignores `[profile.*]` in workspace member packages
 
-**Symptom.** A build prints `warning: profiles for the non root package will be ignored, specify profiles at the workspace root`, and dev-build tuning you put in `src-tauri/Cargo.toml` (faster incremental settings, debug level, etc.) silently has no effect.
+**Symptom.** A build prints `warning: profiles for the non root package will be ignored, specify profiles at the workspace root`, and dev-build tuning you put in a member `Cargo.toml` (faster incremental settings, debug level, etc.) silently has no effect.
 
 **Cause.** In a Cargo workspace, profile settings are only honored in the **root** manifest. A `[profile.dev]` (or any `[profile.*]`) block inside a member package is parsed but ignored — so the tuning appears configured while doing nothing.
 
-**Fix.** Put all `[profile.*]` blocks in the root [Cargo.toml](../Cargo.toml), not in [src-tauri/Cargo.toml](../src-tauri/Cargo.toml) or any `crates/*` member. There's one workspace `target/` dir, so one set of profiles governs everything.
+**Fix.** Put all `[profile.*]` blocks in the root [Cargo.toml](../Cargo.toml), not in [crates/halo-backend/Cargo.toml](../crates/halo-backend/Cargo.toml) or any `crates/*` member. There's one workspace `target/` dir, so one set of profiles governs everything.
 
 ---
 
@@ -141,7 +62,7 @@ let hwnd = windows::Win32::Foundation::HWND(raw.0 as *mut core::ffi::c_void);
 
 **Cause.** `OutputStream::try_default()` opens whatever device is default **at that moment** and binds the stream to it for life. rodio/cpal never migrate an open stream when the system default changes — there's no automatic follow.
 
-**Fix.** Detect the change and rebuild the stream. The 250 ms ticker in [src-tauri/src/lib.rs](../src-tauri/src/lib.rs) polls `get_current_device_name()` (~1 s cadence) and, on a real change, calls `PlayerHandle::rebuild_output()`. That sends `Command::RebuildOutput` to the audio worker, which reopens `OutputStream::try_default()` on the new device, **recomputes the sample rate** (the new device may differ), re-decodes the current track from `current_path`, and seeks back to the saved position — preserving paused state and volume. Skip the very first detection at startup (`last_device` empty) since the stream already opened on the correct default. See `rebuild_output` in [src-tauri/src/audio/mod.rs](../src-tauri/src/audio/mod.rs).
+**Fix.** Detect the change and rebuild the stream. The 250 ms ticker in [crates/halo-backend/src/backend.rs](../crates/halo-backend/src/backend.rs) polls `get_current_device_name()` (~1 s cadence) and, on a real change, calls `PlayerHandle::rebuild_output()`. That sends `Command::RebuildOutput` to the audio worker, which reopens `OutputStream::try_default()` on the new device, **recomputes the sample rate** (the new device may differ), re-decodes the current track from `current_path`, and seeks back to the saved position — preserving paused state and volume. Skip the very first detection at startup (`last_device` empty) since the stream already opened on the correct default. See `rebuild_output` in [crates/halo-backend/src/audio/mod.rs](../crates/halo-backend/src/audio/mod.rs).
 
 ---
 
@@ -151,7 +72,7 @@ let hwnd = windows::Win32::Foundation::HWND(raw.0 as *mut core::ffi::c_void);
 
 **Cause.** `notify`'s `RecommendedWatcher` watches only as long as the handle is alive. The OS subscription is torn down in its `Drop` impl. A `let watcher = notify::recommended_watcher(...)` that goes out of scope unsubscribes immediately.
 
-**Fix.** Keep the watcher handle in long-lived state. We store it in `FolderWatcher.watcher: Mutex<Option<RecommendedWatcher>>` (Tauri-managed). Setting that `Option` to `None` is also how we **stop** watching when the toggle is turned off — dropping the handle is the intended off-switch. `reconfigure()` rebuilds the handle from scratch on every change (startup, toggle, folder add/remove) rather than mutating an existing one. See [src-tauri/src/watcher.rs](../src-tauri/src/watcher.rs).
+**Fix.** Keep the watcher handle in long-lived state. We store it in `FolderWatcher.watcher: Mutex<Option<RecommendedWatcher>>` (held by the `Backend`). Setting that `Option` to `None` is also how we **stop** watching when the toggle is turned off — dropping the handle is the intended off-switch. `reconfigure()` rebuilds the handle from scratch on every change (startup, toggle, folder add/remove) rather than mutating an existing one. See [crates/halo-backend/src/watcher.rs](../crates/halo-backend/src/watcher.rs).
 
 ---
 
@@ -161,7 +82,7 @@ let hwnd = windows::Win32::Foundation::HWND(raw.0 as *mut core::ffi::c_void);
 
 **Cause.** `resume_on_launch` restores the *prior* play/pause state, it does not force paused. The logic is `load_and_play(...)` (which starts playback) followed by `if !was_playing { pause() }` — so a session that was playing when it closed resumes **playing**. It only lands paused when the persisted status was `paused` or absent. The doc-comment "defaults to paused" refers to the unknown-status fallback, not the common case.
 
-**Fix.** Nothing to fix — this is by design. Just don't assume "resume = always paused" when reasoning about startup audio. If you want a hard always-paused policy, drop the `load_and_play`/`!was_playing` dance and pause unconditionally in [src-tauri/src/commands/player.rs](../src-tauri/src/commands/player.rs) — but confirm the UX change with the user first.
+**Fix.** Nothing to fix — this is by design. Just don't assume "resume = always paused" when reasoning about startup audio. If you want a hard always-paused policy, drop the `load_and_play`/`!was_playing` dance and pause unconditionally in [crates/halo-backend/src/commands/player.rs](../crates/halo-backend/src/commands/player.rs) — but confirm the UX change with the user first.
 
 ---
 
@@ -171,7 +92,7 @@ let hwnd = windows::Win32::Foundation::HWND(raw.0 as *mut core::ffi::c_void);
 
 **Cause.** Scrobble gating was wired to `halo_core::playback::is_played`, which is the **local play-count** rule: "30 s elapsed **or** 50% played". That's correct for incrementing a play count, but it is *not* Last.fm's rule. Last.fm requires "played for at least **half the track, or 4 minutes, whichever comes first** (min length 30 s)". The 30 s floor in `is_played` makes any track count as scrobbled after 30 s.
 
-**Fix.** Scrobbling uses a separate function, `halo_core::playback::should_scrobble(position_ms, duration_ms)` (50%-or-4min, returns false for tracks under 30 s; falls back to the 4-min cap when duration is unknown). In [player.rs](../src-tauri/src/commands/player.rs) `next_track`/`previous_track`, `is_played` still drives `record_play`/`record_skip`, but the **scrobble** decision goes through `should_scrobble`. Keep the two thresholds distinct — don't "simplify" by collapsing them back into one. Natural track-end (`on_track_finished`) scrobbles unconditionally, which is fine because the track is fully played.
+**Fix.** Scrobbling uses a separate function, `halo_core::playback::should_scrobble(position_ms, duration_ms)` (50%-or-4min, returns false for tracks under 30 s; falls back to the 4-min cap when duration is unknown). In [player.rs](../crates/halo-backend/src/commands/player.rs) `next_track`/`previous_track`, `is_played` still drives `record_play`/`record_skip`, but the **scrobble** decision goes through `should_scrobble`. Keep the two thresholds distinct — don't "simplify" by collapsing them back into one. Natural track-end (`on_track_finished`) scrobbles unconditionally, which is fine because the track is fully played.
 
 ---
 
@@ -190,115 +111,13 @@ let hwnd = windows::Win32::Foundation::HWND(raw.0 as *mut core::ffi::c_void);
 
 ---
 
-## Linux/Wayland: app icon not showing in GNOME dock
-
-**Symptom.** The app runs fine but shows a blank or generic icon in the GNOME taskbar/dock. `set_icon()` calls have no effect.
-
-**Cause.** On Wayland, GNOME Shell ignores `_NET_WM_ICON` (`set_icon()` is X11-only). Instead it reads the xdg-toplevel **app-id** set via the Wayland protocol, looks for `<app-id>.desktop` in XDG application dirs, and loads the icon from that file. Two sub-problems conspire:
-
-1. **Wrong app-id.** tao (Tauri's windowing layer) derives the Wayland app-id from `g_get_prgname()`, which defaults to the binary name (`"halo"`), not the Tauri identifier (`"com.saravix.halo"`). GNOME Shell then looks for `halo.desktop`, which doesn't exist.
-
-2. **GLib silently rejects `.desktop` files with a non-existent `Exec=` path.** `g_desktop_app_info_new_from_filename()` returns NULL when the declared binary doesn't exist, making the entire file invisible to GNOME Shell — no error is logged. In a Cargo workspace the binary lands in the **workspace root** `target/debug/halo`, *not* `src-tauri/target/debug/halo`.
-
-**Fix.** Two permanent changes:
-
-1. In [src-tauri/src/main.rs](../src-tauri/src/main.rs), call `g_set_prgname("com.saravix.halo")` via FFI *before* `halo_lib::run()` on Linux so tao picks up the right app-id:
-   ```rust
-   #[cfg(target_os = "linux")]
-   unsafe {
-       extern "C" { fn g_set_prgname(prgname: *const std::os::raw::c_char); }
-       g_set_prgname(b"com.saravix.halo\0".as_ptr() as _);
-   }
-   halo_lib::run()
-   ```
-
-2. Install a dev-only `.desktop` file at `~/.local/share/applications/com.saravix.halo.desktop` with `Exec=` pointing to the **actual** compiled binary:
-   ```ini
-   [Desktop Entry]
-   Name=Halo Music Player
-   Exec=/home/sara/Work/Rust/HaloMusicPlayer/target/debug/halo
-   Icon=/home/sara/.local/share/icons/hicolor/128x128/apps/com.saravix.halo.png
-   Type=Application
-   Categories=AudioVideo;Audio;Music;Player;
-   StartupWMClass=com.saravix.halo
-   ```
-   Copy the icon from `src-tauri/icons/128x128.png` to that icon path. Run `update-desktop-database ~/.local/share/applications/` after any change.
-
-To diagnose: run `gtk-launch com.saravix.halo`; if it says "no such application", GLib rejected the `.desktop` file — almost always because `Exec=` points to a missing binary. Verify with `WAYLAND_DEBUG=1` that the app emits `set_app_id("com.saravix.halo")`.
-
-For **production builds** (`tauri build`), Tauri auto-generates and installs the `.desktop` file with the correct installed path — the manual dev file is not needed.
-
----
-
-## Linux: mini player broken — window too tall and main window doesn't hide
-
-Three interlocking problems on Linux/Wayland. All fixed in [src-tauri/src/commands/window.rs](../src-tauri/src/commands/window.rs), [src/components/mini-player.tsx](../src/components/mini-player.tsx), and [index.html](../index.html).
-
-### 0 — `set_always_on_top` races the compositor window-map on Linux/Wayland
-
-**Symptom.** The mini player appears but sits behind other windows — not always-on-top despite the setting being enabled. No errors are returned by `set_always_on_top`.
-
-**Cause.** On GNOME Wayland, the compositor maps windows **asynchronously** after `show()`. Calling `set_always_on_top` immediately after `show()` races the window-map event and the compositor discards the hint. Confirmed the mechanism itself is sound: manually toggling "Always on Top" from the window's title-bar right-click menu (a GNOME Shell / Mutter feature, not ours) works instantly and persists — proving `gtk_window_set_keep_above()` does work on this GNOME/Mutter version once the window is fully mapped. A single re-apply at a fixed delay (e.g. 250 ms) was not reliable enough under system load.
-
-**Fix.** Call `set_always_on_top` immediately after `show()`, then retry it repeatedly from a background thread at increasing gaps (100/250/500/1000/2000 ms cumulative) for about 2 seconds (Linux-only via `#[cfg(target_os = "linux")]`). One of the retries is guaranteed to land after the compositor finishes mapping the window, at which point the hint sticks exactly like the manual toggle. See `open_mini_player` in [src-tauri/src/commands/window.rs](../src-tauri/src/commands/window.rs).
-
-**What didn't work.**
-- `gdk_set_allowed_backends("x11")` — forces GTK to use XWayland; panics ("Failed to initialize GTK") when `DISPLAY` auth isn't accessible in the launch environment (e.g. when spawned via `npm run tauri dev`).
-- `gdk_set_allowed_backends("x11,wayland")` — falls back to Wayland when x11 init fails, so AOT still doesn't work.
-- Guarding either call with `GDK_BACKEND.is_none()` — Wayland sessions always export `GDK_BACKEND=wayland`, so the guard skips the call on every login.
-
-### 1 — Main window stays visible when mini player opens
-
-**Symptom.** Opening the mini player shows it floating over the main Halo window instead of replacing it.
-
-**Cause.** `open_mini_player` used `?` on `set_always_on_top` and `set_focus`. On Linux/Wayland, both are routinely rejected by the compositor (focus stealing is blocked; "always on top" hints are not universally supported). When either returned `Err`, Rust's `?` exited the function early — **before the `main.hide()` call at the end**. The mini player was already visible (`.show()` had succeeded) but the main window never hid.
-
-**Fix.** Change both to `.ok()`. They are best-effort on every platform; `.show()` remains a hard error since failure there means no mini player at all. Also call `set_always_on_top` *after* `show()` + `unminimize()` — on GTK the keep_above hint only takes effect on a mapped (visible) window.
-
-### 2 — Window height ignores the 30 px constraint (GTK compositor minimum)
-
-**Symptom.** The mini player content is correctly 30 px but sits inside a much taller dark-background window — the window height is 120–200 px depending on the compositor.
-
-**Cause.** Wayland compositors enforce a minimum window height that overrides GTK's own geometry hints (`min_inner_size` / `max_inner_size` / `resizable(false)`). The `inner_size(280, 30)` builder call and a post-build `set_size(LogicalSize::new(280, 30))` are both silently overridden by the compositor after the window is mapped.
-
-**Fix (workaround — can't defeat the compositor).** Three layers:
-1. `.transparent(true)` on the builder — forces an ARGB composited surface, which removes the opaque GTK chrome that contributes to minimum height.
-2. Post-build `#[cfg(target_os = "linux")] window.set_size(LogicalSize::new(MINI_W, MINI_H))` — belt-and-suspenders attempt.
-3. Initialization script sets `document.documentElement.style.background = 'transparent'` and `document.body.style.background = 'transparent'` — so the compositor-imposed extra height below the 30 px content strip is transparent (invisible + click-through on Wayland) rather than a solid dark rectangle.
-
-On Windows/macOS, `transparent(true)` is harmless: the window is exactly 30 px, so there is no extra space for transparency to expose, and the MiniPlayer root's `bg-background` (opaque) covers the entire window.
-
-### 3 — Content height driven by font metrics, not the viewport
-
-**Symptom.** The mini player content area is visibly taller than 30 px even before the compositor minimum is hit — on Linux, default font metrics make the two-line text layout slightly taller than on Windows.
-
-**Cause.** The mini player root div used `h-full` (= `height: 100%`). On WebKitGTK, `100%` resolves against the parent's computed height; because `html`/`body`/`#root` all had `height: auto`, it effectively meant "as tall as the content's natural height". Different font metrics on Linux made the natural height slightly > 30 px, causing WebKitGTK to report a larger preferred size to GTK and GTK to grow the window accordingly.
-
-**Fix.** Changed `h-full` → `h-[30px]` on the mini player root div in [src/components/mini-player.tsx](../src/components/mini-player.tsx). This pins the WebKit layout to exactly 30 px regardless of font metrics or the viewport height chain. Also added `height: 100%; overflow: hidden` to `html`, `body`, and `#root` in [index.html](../index.html) so the main window's `h-full` chain resolves correctly on all platforms.
-
-### Also fixed: default position on Linux
-
-`default_mini_position` returned `None` on non-Windows, landing the mini player at `center()`. It now computes bottom-right using the primary monitor's physical size with a 56 logical-px bottom margin to clear typical taskbars/docks.
-
----
-
 ## Migration files must be wired into `migrations.rs` by hand
 
-**Symptom.** A table defined in `src-tauri/migrations/*.sql` doesn't exist at runtime. Code that writes to it with `let _ = conn.execute(...)` fails silently (this is how the Last.fm offline scrobble queue lost every queued scrobble).
+**Symptom.** A table defined in `crates/halo-backend/migrations/*.sql` doesn't exist at runtime. Code that writes to it with `let _ = conn.execute(...)` fails silently (this is how the Last.fm offline scrobble queue lost every queued scrobble).
 
-**Cause.** The runner in [src-tauri/src/db/migrations.rs](../src-tauri/src/db/migrations.rs) doesn't scan the directory — each file is `include_str!`'d explicitly behind a `PRAGMA user_version` check. Two files once shared the `007_` prefix (`007_waveform.sql`, `007_lastfm.sql`); only one was wired up, so `lastfm_scrobble_queue` was never created.
+**Cause.** The runner in [crates/halo-backend/src/db/migrations.rs](../crates/halo-backend/src/db/migrations.rs) doesn't scan the directory — each file is `include_str!`'d explicitly behind a `PRAGMA user_version` check. Two files once shared the `007_` prefix (`007_waveform.sql`, `007_lastfm.sql`); only one was wired up, so `lastfm_scrobble_queue` was never created.
 
 **Fix.** Every new `.sql` file gets a unique next number **and** a matching `if version < N` block. The scrobble queue now lives in `009_lastfm_queue.sql` (idempotent `CREATE TABLE IF NOT EXISTS`, safe on any DB).
-
----
-
-## Linux dev: album art blank on WebKitGTK 2.54 ("Unsafe attempt to load URL asset://…")
-
-**Symptom.** In `npm run tauri dev` on Linux, every thumbnail / cover shows the grey disc fallback. DevTools console: `Unsafe attempt to load URL asset://localhost/… from origin http://localhost:1420. Domains, protocols and ports must match.` Production builds (`npm run tauri build`) show art fine; so do older distros (e.g. Ubuntu with WebKitGTK ≤ 2.52).
-
-**Cause.** WebKitGTK regression starting at 2.54 (Debian 13 / MX Linux 25, Fedora 44, current Arch/NixOS): a page served over `http://` may no longer *display* `asset://` URLs. wry only registers `asset` as a secure scheme, which no longer suffices. In dev the page origin is the Vite server (`http://localhost:1420`); in production it is `tauri://localhost`, which is unaffected. Upstream: [tauri#16201](https://github.com/tauri-apps/tauri/issues/16201) (`status: upstream`). `WEBKIT_GST_ALLOWED_URI_PROTOCOLS` does not help.
-
-**Fix (dev-only workaround).** Display local files via `assetUrl()` in [src/lib/asset-url.ts](../src/lib/asset-url.ts), never `convertFileSrc` directly. In dev on Linux it returns Vite's same-origin `/@fs/<path>`; everywhere else it's `convertFileSrc`. [vite.config.ts](../vite.config.ts) adds Halo's art cache (`$XDG_CACHE_HOME/com.saravix.halo`) to `server.fs.allow` — anything else still gets 403. Images picked from outside the cache (metadata editor → local file) won't preview in Linux dev. Delete the workaround once WebKitGTK/Tauri fix it upstream.
 
 ---
 
@@ -319,12 +138,12 @@ On Windows/macOS, `transparent(true)` is harmless: the window is exactly 30 px, 
 **Symptom.** Selecting several files in Windows Explorer → Open plays only the last one. Or double-clicking works on Windows/Linux but not macOS. Or a Linux `.deb` install doesn't offer Halo for audio files.
 
 **Cause.**
-- Windows Explorer starts **one process per selected file** (`halo.exe "file"`), each forwarded to the running instance by `tauri-plugin-single-instance` as a separate callback. Each replacing the queue means only the last survives.
-- macOS never passes files as argv — they arrive as `RunEvent::Opened { urls }` (both cold start and while running).
-- Linux association comes from `MimeType=` in the `.desktop` file. Our custom deb template ([src-tauri/linux/halo.desktop.hbs](../src-tauri/linux/halo.desktop.hbs)) originally had no `MimeType` line, so `bundle.fileAssociations` had no effect. `mimeType` values must match what shared-mime-info detects (e.g. `.ogg` sniffs as `audio/x-vorbis+ogg`, `.wav` is `audio/vnd.wave`), hence the `;`-separated lists in tauri.conf.json.
+- Windows Explorer starts **one process per selected file** (`halo.exe "file"`), each forwarded to the running instance over the single-instance socket ([crates/halo-app/src/single_instance.rs](../crates/halo-app/src/single_instance.rs)) as a separate message. Each replacing the queue means only the last survives.
+- macOS never passes files as argv — they arrive as an "open documents" Apple Event. iced/winit exposes no API for it, so **files opened while Halo is already running on macOS are not handled yet** (known gap).
+- Linux association comes from `MimeType=` in the `.desktop` file. Our deb template ([crates/halo-app/linux/halo.desktop.hbs](../crates/halo-app/linux/halo.desktop.hbs)) must keep its `MimeType` line. `mimeType` values must match what shared-mime-info detects (e.g. `.ogg` sniffs as `audio/x-vorbis+ogg`, `.wav` is `audio/vnd.wave`), hence the `;`-separated lists in the `fileAssociations` of [crates/halo-app/Cargo.toml](../crates/halo-app/Cargo.toml).
 - AppImage cannot register file associations at all (needs AppImageLauncher / appimaged).
 
-**Fix.** All paths funnel into `open_files::enqueue` ([src-tauri/src/open_files.rs](../src-tauri/src/open_files.rs)), which coalesces for 300 ms before opening the batch as one queue. Cold-start argv is handled in `setup()` *instead of* `resume_on_launch`; the macOS `Opened` event is handled in the `.run(|app, event| …)` closure in [src-tauri/src/lib.rs](../src-tauri/src/lib.rs). `PLAYABLE_EXTENSIONS` and `bundle.fileAssociations` must list the same formats (only ones rodio can decode — not opus/wma).
+**Fix.** All paths funnel into `open_files::enqueue` ([crates/halo-backend/src/open_files.rs](../crates/halo-backend/src/open_files.rs)), which coalesces for 300 ms before opening the batch as one queue. Cold-start argv is handled in `main` via `Backend::handle_launch_files` *instead of* `resume_on_launch`; forwarded launches go through `Backend::handle_forwarded_args`. `PLAYABLE_EXTENSIONS` and the packager `fileAssociations` must list the same formats (only ones rodio can decode — not opus/wma).
 
 ---
 
@@ -334,7 +153,79 @@ On Windows/macOS, `transparent(true)` is harmless: the window is exactly 30 px, 
 
 **Cause.** The DB connection is a `std::sync::Mutex<Connection>`, which is **not re-entrant**: locking it again on the same thread blocks forever. `previous_track` called `emit_state(&app)` inside the block where it still held `conn`; `emit_state` → `build_full_state` locks the DB again → self-deadlock. The 250 ms ticker then blocks on the same lock, so everything stops. (The branch only ran at the start of a shuffle pass, which is why it went unnoticed.)
 
-**Fix / rule.** Inside a `let conn = db.lock()…` scope, only use `&conn`-taking helpers. Call `emit_state`, other `#[tauri::command]` fns, or anything that does `app.state::<Mutex<Connection>>().lock()` only after the guard is dropped (end the block or `drop(conn)`). Lock order for other state is DB first, then `ShuffleState` / `LastFmState`. MPRIS (`busctl --user call org.mpris.MediaPlayer2.halo /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player Next`) drives the same command paths as the buttons — handy for reproducing.
+**Fix / rule.** Inside a `let conn = db.lock()…` scope, only use `&conn`-taking helpers. Call `emit_state`, other command fns, or anything that does `app.state::<Mutex<Connection>>().lock()` / `b.db().lock()` only after the guard is dropped (end the block or `drop(conn)`). Lock order for other state is DB first, then `ShuffleState` / `LastFmState`. MPRIS (`busctl --user call org.mpris.MediaPlayer2.halo /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player Next`) drives the same command paths as the buttons — handy for reproducing.
+
+---
+
+## Windows SMTC needs the main window's HWND — keep the main window alive
+
+**Symptom.** No media-panel integration on Windows, and `media controls init failed` in the log; or SMTC stops reacting after the main window is closed.
+
+**Cause.** souvlaki's Windows backend `expect`s an HWND (it panics without one), and the SMTC session is bound to that window.
+
+**Fix.** `Halo::start_media_controls` ([crates/halo-app/src/app.rs](../crates/halo-app/src/app.rs)) fetches the HWND with `window::run` + `raw-window-handle` *after* the main window has opened and only then calls `Backend::start_media_controls`. Closing to tray and opening the mini player **hide** the main window (`window::set_mode(Hidden)`); never `window::close` it while the app keeps running.
+
+---
+
+## Linux tray icon needs its own GTK main loop
+
+**Symptom.** No tray icon on Linux, or a panic about GTK not being initialised.
+
+**Cause.** `tray-icon` uses libappindicator / GTK, which needs `gtk::init()` and a running `gtk::main()`. winit (iced) doesn't drive GTK.
+
+**Fix.** [crates/halo-app/src/tray.rs](../crates/halo-app/src/tray.rs) builds the icon on a dedicated `halo-tray` thread that calls `gtk::init()` then `gtk::main()`. On Windows/macOS the icon must instead be created on the main thread, which is where iced runs `update` (done on the first `WindowOpened`). Menu / click events reach iced via channels → `tray::events()` subscription.
+
+---
+
+## MPRIS `desktop_entry` must match the installed `.desktop` basename
+
+**Symptom.** GNOME Shell's media widget shows a generic icon for Halo.
+
+**Cause.** The widget resolves the app icon from MPRIS `DesktopEntry`. cargo-packager names the desktop file after the **binary** (`halo.desktop`), whereas Tauri's bundler used the product name.
+
+**Fix.** `desktop_entry: "halo"` in [crates/halo-backend/src/audio/media_controls.rs](../crates/halo-backend/src/audio/media_controls.rs). The window app-id is set to `com.saravix.halo` (`platform_specific.application_id`), matching `StartupWMClass` in the template.
+
+---
+
+## iced: `renderer.with_layer` escapes the parent's clip
+
+**Symptom.** Text in a virtualised list paints outside the table / scrollable bounds (e.g. a half-scrolled row's title drawn over the border).
+
+**Cause.** A new layer's clip rectangle is absolute; it is not intersected with the clip of the scrollable you're inside.
+
+**Fix.** In custom widgets, draw text with `fill_paragraph(…, clip_bounds)` where `clip_bounds = bounds ∩ viewport` instead of wrapping it in `with_layer`. See `TextLine::draw` in [crates/halo-app/src/widgets/textline.rs](../crates/halo-app/src/widgets/textline.rs).
+
+---
+
+## iced: `Length::FillPortion(0)` is not zero width
+
+**Symptom.** A progress bar at 0% renders completely full.
+
+**Cause.** A zero portion still takes space when it's the only fill sibling with content.
+
+**Fix.** Use `ui::progress(fraction, …)` ([crates/halo-app/src/ui.rs](../crates/halo-app/src/ui.rs)), which special-cases 0% and 100%.
+
+---
+
+## iced: `responsive` closures run more than once
+
+**Symptom.** A cell inside `responsive` renders correctly once, then empty after a resize / re-layout.
+
+**Cause.** iced may call the `responsive` closure on every layout. Moving an element out of a `RefCell` inside it (`take()`) leaves nothing for the next call.
+
+**Fix.** Build everything inside the closure from borrowed data. For grids, `common::vgrid` passes the computed cell width to the item builder instead (used to make album art / avatars square).
+
+---
+
+## Testing the UI headless (Xvfb)
+
+**Symptom.** Under Xvfb the app panics (`libxkbcommon-x11.so could not be loaded`), or keyboard input (xdotool) never reaches the window, or the audio backend fails to start.
+
+**Cause / Fix.**
+- Install `libxkbcommon-x11-0` at runtime (winit dlopens it).
+- There is no window manager, so X focus isn't given to the window: run `xdotool windowfocus <wid>` before typing.
+- No sound card: create `~/.asoundrc` with `pcm.!default { type null }`. The null device consumes audio **much faster than real time**, so tracks end in a second or two — pause playback before testing anything that resets on track change (e.g. the lyrics editor).
+- Set `XDG_RUNTIME_DIR` to an existing 0700 directory.
 
 ---
 

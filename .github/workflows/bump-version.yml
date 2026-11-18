@@ -4,7 +4,7 @@ name: Bump version
 # The bump commit is pushed with GITHUB_TOKEN, which does not trigger
 # workflows, so it does not bump itself again. Put "[skip bump]" in a commit
 # title (first line) to push without a bump (e.g. when setting a version by hand with
-# `node scripts/bump-version.mjs <version>`).
+# `python3 scripts/bump-version.py <version>`).
 
 on:
   push:
@@ -38,15 +38,10 @@ jobs:
         with:
           ref: main
 
-      - if: steps.skip.outputs.skip != 'true'
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-
       - name: Bump patch version
         if: steps.skip.outputs.skip != 'true'
         id: bump
-        run: echo "version=$(node scripts/bump-version.mjs)" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(python3 scripts/bump-version.py)" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push
         if: steps.skip.outputs.skip != 'true'

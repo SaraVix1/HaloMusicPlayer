@@ -762,7 +762,7 @@ they are; it only *relocates decision logic* and puts a seam (`AudioBackend`) ar
 
 ### E.2 What moves into `halo-core` (pure, no I/O)
 
-Lift these out of [commands/player.rs](../../src-tauri/src/commands/player.rs) — they are
+Lift these out of [commands/player.rs](../../crates/halo-backend/src/commands/player.rs) — they are
 already pure or near-pure:
 
 | Source today | Moves to `halo-core` as |
@@ -793,7 +793,7 @@ This is a pure refactor: same threads, same `PathBuf`, same `Instant` position *
     `write_string(KEY_CURRENT_INDEX, …)`; `PersistVolume` → `KEY_VOLUME`.
 - `build_full_state` is unchanged externally (same `FullPlayerState` JSON to the UI) but now
   reads queue/index/shuffle/repeat from the engine instead of re-reading `app_state` each call.
-- The 250 ms ticker in [lib.rs](../../src-tauri/src/lib.rs#L190) **stays as-is in Phase A**
+- The 250 ms ticker in [lib.rs](../../crates/halo-backend/src/lib.rs#L190) **stays as-is in Phase A**
   (it still polls and calls `advance_if_finished`/`try_start_crossfade`, which now delegate to
   engine methods). It only becomes event-driven in Phase B.
 

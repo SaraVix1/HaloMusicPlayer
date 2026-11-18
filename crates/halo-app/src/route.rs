@@ -45,14 +45,6 @@ pub enum SettingsTab {
 }
 
 impl SettingsTab {
-    pub const ALL: [SettingsTab; 6] = [
-        SettingsTab::General,
-        SettingsTab::Appearance,
-        SettingsTab::Playback,
-        SettingsTab::Equalizer,
-        SettingsTab::Library,
-        SettingsTab::Advanced,
-    ];
     pub fn label(self) -> &'static str {
         match self {
             SettingsTab::General => "General",
@@ -65,6 +57,10 @@ impl SettingsTab {
     }
 }
 
+/// Standalone list routes (`Artists`, `Years`, …) and `RecentlyPlayed` /
+/// `MostPlayed` exist like their old URL paths even though the sidebar
+/// doesn't link them.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Route {
     /// `/songs?album=&artist=&album_artist=&composer=&genre=&year=&sort=&dir=`

@@ -108,7 +108,7 @@ pub fn open(app: &mut Halo) -> Task<Message> {
         Task::perform(tokio::time::sleep(Duration::from_millis(ms)), move |_| ())
             .then(move |_| window::set_level::<Message>(id, level))
     });
-    Task::batch([task.then(move |id| window::gain_focus(id))].into_iter().chain(retries))
+    Task::batch([task.then(window::gain_focus)].into_iter().chain(retries))
 }
 
 /// Mini window moved: save its position (debounced 300ms).

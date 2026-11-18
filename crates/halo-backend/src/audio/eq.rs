@@ -37,6 +37,12 @@ pub struct EqState {
     pub dynamic_enabled: AtomicBool,
 }
 
+impl Default for EqState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EqState {
     pub fn new() -> Self {
         Self {

@@ -4,27 +4,19 @@ How to replace Halo's app icon and ensure the new icon shows up everywhere on Wi
 
 ## 1. Generate icon files from a source PNG
 
-Place your source PNG (ideally 1024×1024, transparent background) in the project root and run:
-
-```powershell
-npx tauri icon app-icon-source.png
-```
-
-This populates [src-tauri/icons/](../../src-tauri/icons/) with every required size:
+Start from a source PNG (ideally 1024×1024, transparent background) and export the sizes below with any icon tool (e.g. ImageMagick: `magick src.png -resize 128x128 128x128.png`, `magick src.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico`; on macOS `iconutil` for `icon.icns`). Replace the files in [crates/halo-app/assets/icons/](../../crates/halo-app/assets/icons/) :
 
 | Platform | Files |
 |---|---|
 | Windows | `icon.ico`, `Square*Logo.png` (Store) |
 | macOS   | `icon.icns` |
 | Linux   | `32x32.png`, `128x128.png`, `128x128@2x.png`, `icon.png` |
-| iOS     | `ios/AppIcon-*` |
-| Android | `android/mipmap-*` |
 
-The set referenced by Tauri's bundler is listed under `bundle.icon` in [src-tauri/tauri.conf.json](../../src-tauri/tauri.conf.json).
+The set used by the installers is listed under `icons` in `[package.metadata.packager]` of [crates/halo-app/Cargo.toml](../../crates/halo-app/Cargo.toml). The window / tray icons are embedded from `128x128.png` and `32x32.png` at compile time.
 
 ## 2. Force the binary to re-embed the icon
 
-On Windows the `.ico` is compiled into the executable as a resource by `tauri-build`. Cargo's incremental build won't notice the new `.ico` and will keep the old icon baked in.
+On Windows the `.ico` is compiled into the executable as a resource by [crates/halo-app/build.rs](../../crates/halo-app/build.rs) (`winresource`). Windows caches shell icons aggressively, so the old icon can stick around.
 
 Run the helper script from the project root:
 
@@ -47,7 +39,7 @@ It performs:
 ## 3. Rebuild and run
 
 ```powershell
-npm run tauri dev
+cargo run -p halo
 ```
 
 The new icon will show in the taskbar, Alt+Tab, and the executable in File Explorer.
@@ -58,7 +50,7 @@ The new icon will show in the taskbar, Alt+Tab, and the executable in File Explo
 If Halo is pinned to the taskbar, the icon is cached inside the `.lnk` shortcut. Right-click the pinned icon → *Unpin from taskbar*, launch the app again, then re-pin it.
 
 **The window's custom title bar doesn't show an icon.**
-Expected — `decorations: false` in [tauri.conf.json](../../src-tauri/tauri.conf.json) means there is no native title bar. If you want a logo there, add an `<img>` to [src/components/title-bar.tsx](../../src/components/title-bar.tsx).
+Expected — the main window is undecorated (`decorations: false` in `main_window_settings`, [crates/halo-app/src/app.rs](../../crates/halo-app/src/app.rs)), so there is no native title bar. If you want a logo there, add an image to [crates/halo-app/src/components/title_bar.rs](../../crates/halo-app/src/components/title_bar.rs).
 
 **Installer (`.msi` / `.exe`) shows the old icon.**
-Run `npm run tauri build` after the cache clean. The bundler embeds `icon.ico` into the installer at build time.
+Run `cargo build --release -p halo && cargo packager --release -p halo` after the cache clean. The packager embeds `icon.ico` into the installer at build time.

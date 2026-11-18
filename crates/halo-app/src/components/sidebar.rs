@@ -22,7 +22,8 @@ fn nav_button<'a>(i: Icon, label: &'static str, active: bool, msg: Message) -> E
 
 pub fn view(app: &Halo) -> Element<'_, Message> {
     let section = app.route().section();
-    let items: [(Icon, &'static str, Option<(Section, Route)>); 7] = [
+    type Item = (Icon, &'static str, Option<(Section, Route)>);
+    let items: [Item; 7] = [
         (Icon::Search, "Search (Ctrl+K)", None),
         (
             Icon::Music,

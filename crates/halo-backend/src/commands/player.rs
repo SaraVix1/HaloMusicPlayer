@@ -423,7 +423,7 @@ pub fn play_queue_index(app: Backend, index: i64) -> Result<(), String> {
         } else {
             None
         };
-        if !load_index(&player_handle, &conn, index)? {
+        if !load_index(player_handle, &conn, index)? {
             return Err(format!("no track at index {index}"));
         }
         if let Some(order) = order {
@@ -444,7 +444,7 @@ pub fn toggle_play_pause(app: Backend) -> Result<(), String> {
             let db = app.state::<Mutex<Connection>>();
             let conn = db.lock().map_err(|e| e.to_string())?;
             let index = read_int(&conn, KEY_CURRENT_INDEX).unwrap_or(0);
-            load_index(&player_handle, &conn, index)?;
+            load_index(player_handle, &conn, index)?;
         }
     }
     emit_state(&app);
@@ -553,7 +553,7 @@ pub fn next_track(app: Backend) -> Result<(), String> {
             let current = read_int(&conn, KEY_CURRENT_INDEX).unwrap_or(0);
             match upcoming_index(&app, &conn, current, length) {
                 (Some(idx), order) => {
-                    load_index(&player_handle, &conn, idx)?;
+                    load_index(player_handle, &conn, idx)?;
                     if let Some(order) = order {
                         commit_shuffle(&app, &conn, &order)?;
                     }
@@ -602,7 +602,7 @@ pub fn previous_track(app: Backend) -> Result<(), String> {
                     let mut order = load_shuffle(&app, &conn, length, current);
                     match order.prev() {
                         Some(prev) => {
-                            load_index(&player_handle, &conn, prev)?;
+                            load_index(player_handle, &conn, prev)?;
                             commit_shuffle(&app, &conn, &order)?;
                         }
                         // Start of the shuffle pass — restart the current track.
@@ -615,12 +615,12 @@ pub fn previous_track(app: Backend) -> Result<(), String> {
                         // Stopped (e.g. Next ran off the end): seeking a stopped
                         // player does nothing, so reload the current track.
                         None => {
-                            load_index(&player_handle, &conn, current)?;
+                            load_index(player_handle, &conn, current)?;
                         }
                     }
                 } else {
                     let prev = if current == 0 { length - 1 } else { current - 1 };
-                    load_index(&player_handle, &conn, prev)?;
+                    load_index(player_handle, &conn, prev)?;
                 }
             }
         }
@@ -745,7 +745,7 @@ pub fn set_queue_and_play(
         let conn = db.lock().map_err(|e| e.to_string())?;
         replace_queue(&conn, &track_ids)?;
         let idx = start_index.clamp(0, track_ids.len() as i64 - 1);
-        load_index(&player_handle, &conn, idx)?;
+        load_index(player_handle, &conn, idx)?;
         // New queue → new shuffle pass starting from the chosen track.
         if shuffle_enabled(&conn) {
             let order = ShuffleOrder::new(track_ids.len() as i64, idx, &mut fastrand::Rng::new());
@@ -841,7 +841,7 @@ pub fn remove_from_queue(app: Backend, queue_id: i64) -> Result<(), String> {
                             .as_ref()
                             .and_then(|o| o.current())
                             .unwrap_or(curr.min(length - 1));
-                        load_index(&player_handle, &conn, new_idx)?;
+                        load_index(player_handle, &conn, new_idx)?;
                     } else {
                         delete_key(&conn, KEY_CURRENT_INDEX)?;
                     }
@@ -928,7 +928,7 @@ fn on_track_finished(app: &Backend, finished_track_id: i64) -> bool {
     let current = read_int(&conn, KEY_CURRENT_INDEX).unwrap_or(0);
     if let (Some(idx), order) = upcoming_index(app, &conn, current, length) {
         let player_handle = app.state::<PlayerHandle>();
-        if load_index(&player_handle, &conn, idx).unwrap_or(false) {
+        if load_index(player_handle, &conn, idx).unwrap_or(false) {
             if let Some(order) = order {
                 let _ = commit_shuffle(app, &conn, &order);
             }

@@ -72,8 +72,6 @@ pub enum Message {
     ToggleMaximize,
     CloseMain,
     OpenMini,
-    RestoreMain,
-    Quit,
 
     // Input / system
     Key(Key, Modifiers, window::Id),
@@ -324,8 +322,6 @@ impl Halo {
                 None => Task::none(),
             },
             Message::OpenMini => self.open_mini(),
-            Message::RestoreMain => self.restore_main(),
-            Message::Quit => iced::exit(),
 
             Message::Key(key, mods, id) => self.on_key(key, mods, id),
             Message::SystemTheme(mode) => {
@@ -609,13 +605,10 @@ impl Halo {
                     let has_cmd = modifiers.command() || modifiers.control();
                     // Shortcuts with Ctrl/Cmd fire even from text fields;
                     // plain keys only when nothing captured them.
-                    if has_cmd || status == event::Status::Ignored {
-                        Some(Message::Key(key, modifiers, id))
-                    } else if matches!(key, Key::Named(key::Named::Escape)) {
-                        Some(Message::Key(key, modifiers, id))
-                    } else {
-                        None
-                    }
+                    // Escape always (closes dialogs / palette from inputs).
+                    let escape = matches!(key, Key::Named(key::Named::Escape));
+                    (has_cmd || escape || status == event::Status::Ignored)
+                        .then_some(Message::Key(key, modifiers, id))
                 }
                 _ => None,
             }),

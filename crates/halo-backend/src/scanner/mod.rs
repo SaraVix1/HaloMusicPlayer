@@ -104,7 +104,7 @@ pub fn run_scan(app: Backend, options: ScanOptions) -> Result<ScanSummary, Strin
 
     for (idx, (folder_id, path)) in files.iter().enumerate() {
         let display = path.display().to_string();
-        match process_file(&app, &state, Some(*folder_id), path, &options, &cache_dir) {
+        match process_file(&app, state, Some(*folder_id), path, &options, &cache_dir) {
             Ok(Outcome::Inserted) => counts.inserted += 1,
             Ok(Outcome::Updated) => counts.updated += 1,
             Ok(Outcome::Skipped) => counts.skipped += 1,
@@ -201,7 +201,7 @@ pub fn import_paths(app: &Backend, paths: &[PathBuf]) -> Vec<i64> {
         let candidates: Vec<&Path> = std::iter::once(path.as_path())
             .chain(canonical.as_deref())
             .collect();
-        if let Some(id) = candidates.iter().find_map(|p| track_id_for_path(&state, p)) {
+        if let Some(id) = candidates.iter().find_map(|p| track_id_for_path(state, p)) {
             ids.push(id);
             continue;
         }
@@ -215,9 +215,9 @@ pub fn import_paths(app: &Backend, paths: &[PathBuf]) -> Vec<i64> {
             })
             .max_by_key(|(_, root)| root.components().count())
             .map(|(id, _)| *id);
-        match process_file(app, &state, folder_id, path, &options, &cache_dir) {
+        match process_file(app, state, folder_id, path, &options, &cache_dir) {
             Ok(_) => {
-                if let Some(id) = track_id_for_path(&state, path) {
+                if let Some(id) = track_id_for_path(state, path) {
                     ids.push(id);
                 }
             }

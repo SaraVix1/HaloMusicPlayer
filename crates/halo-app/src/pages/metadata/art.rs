@@ -10,7 +10,7 @@ use iced::{Alignment, ContentFit, Element, Length, Padding, Task};
 
 use super::{crop, editor, mm, ArtMode, Draft, Editor, Msg as MMsg, URL_INPUT};
 use crate::app::{bg, Halo, Message};
-use crate::icons::{icon, Icon};
+use crate::icons::Icon;
 use crate::theme::{self, a, t};
 use crate::ui::{self, spin, spin_angle, tip, Spinner};
 

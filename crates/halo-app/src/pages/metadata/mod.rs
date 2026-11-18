@@ -3,7 +3,7 @@
 //! - `mod.rs`   — state, messages, loading / saving
 //! - `fields.rs`— the tag form (title … language)
 //! - `art.rs`   — album-art column (pick file, extract, URL, online
-//!                 suggestions, undo)
+//!   suggestions, undo)
 //! - `crop.rs`  — crop view (drag / resize box, Apply crop / Use full image)
 //!
 //! Ctrl+Enter saves; Escape leaves the URL / online / crop sub-modes first.
@@ -89,6 +89,8 @@ pub enum Field {
     Language,
 }
 
+// One-shot load payload; boxing it would only add noise at the call sites.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Msg {
     Loaded(i64, Result<FullTrackMetadata, String>),

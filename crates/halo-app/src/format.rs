@@ -88,9 +88,6 @@ pub fn short_date(ts_s: i64) -> String {
     format!("{} {}, {}", MONTHS[(m - 1) as usize], d, y)
 }
 
-pub fn join(v: &[String]) -> String {
-    v.join(", ")
-}
 
 #[cfg(test)]
 mod tests {

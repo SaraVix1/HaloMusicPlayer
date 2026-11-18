@@ -496,7 +496,7 @@ pub fn fetch_lyrics_online(app: Backend, track_id: i64) -> Result<LyricsResult, 
             Ok(build_result(&lyrics, &source))
         }
         None => {
-            mark_searched(&db, track_id);
+            mark_searched(db, track_id);
             Ok(LyricsResult { source: "not_found".into(), synced: false, lines: vec![] })
         }
     }

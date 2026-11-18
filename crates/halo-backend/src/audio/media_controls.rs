@@ -97,13 +97,13 @@ pub fn spawn(
             };
             // Must match the basename of the installed .desktop file (without
             // the .desktop suffix) so GNOME Shell's media widget can resolve
-            // the app icon. The deb bundler names it after `productName`
-            // ("Halo Music Player.desktop"); our dev-mode .desktop file
-            // (~/.local/share/applications/) is named to match.
+            // the app icon. cargo-packager names it after the binary
+            // ("halo.desktop"); a dev-mode .desktop file in
+            // ~/.local/share/applications/ should use the same name.
             let config = PlatformConfig {
                 dbus_name: "halo",
                 display_name: "Halo Music Player",
-                desktop_entry: "Halo Music Player",
+                desktop_entry: "halo",
                 hwnd: hwnd_ptr,
             };
             let mut controls = match MediaControls::new(config) {
