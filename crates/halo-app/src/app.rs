@@ -10,7 +10,7 @@ use iced::keyboard::{self, key, Key, Modifiers};
 use iced::widget::{column, container, mouse_area, row, stack};
 use iced::{event, mouse, window, Element, Length, Point, Size, Subscription, Task, Theme};
 
-use crate::components::{context_menu, fullscreen, lyrics, mini, now_playing, palette, sidebar, title_bar, queue_panel};
+use crate::components::{context_menu, drop, fullscreen, lyrics, mini, now_playing, palette, sidebar, title_bar, queue_panel};
 use crate::pages;
 use crate::route::{History, Route};
 use crate::theme;
@@ -89,6 +89,7 @@ pub enum Message {
     Fullscreen(fullscreen::Msg),
     QueuePanel(queue_panel::Msg),
     Context(context_menu::Msg),
+    Drop(drop::Msg),
     Mini(mini::Msg),
     Lyrics(lyrics::Msg),
     Palette(palette::Msg),
@@ -133,6 +134,7 @@ pub struct Halo {
     pub fullscreen: fullscreen::State,
     pub queue_panel: queue_panel::State,
     pub context: context_menu::State,
+    pub drop: drop::State,
     pub palette: palette::State,
     pub pages: pages::Pages,
     media_started: bool,
@@ -207,6 +209,7 @@ impl Halo {
             fullscreen: fullscreen::State::default(),
             queue_panel: queue_panel::State::default(),
             context: context_menu::State::default(),
+            drop: drop::State::default(),
             palette: palette::State::default(),
             pages: pages::Pages {
                 library: pages::library::LibraryState::new(&backend),
@@ -418,6 +421,7 @@ impl Halo {
             Message::Fullscreen(m) => fullscreen::update(self, m),
             Message::QueuePanel(m) => queue_panel::update(self, m),
             Message::Context(m) => context_menu::update(self, m),
+            Message::Drop(m) => drop::update(self, m),
             Message::Mini(m) => mini::update(self, m),
             Message::Lyrics(m) => lyrics::update(self, m),
             Message::Palette(m) => palette::update(self, m),
@@ -548,6 +552,8 @@ impl Halo {
                 palette::toggle(self)
             }
             Key::Character(c) if cmd && c.eq_ignore_ascii_case("m") => self.open_mini(),
+            Key::Named(key::Named::Escape) if drop::is_open(self) => self.update(Message::Drop(drop::Msg::Cancel)),
+            Key::Named(key::Named::Enter) if drop::is_open(self) && !self.palette.open => drop::on_enter(self),
             Key::Named(key::Named::Escape) if context_menu::is_open(self) => {
                 self.update(Message::Context(context_menu::Msg::Close))
             }
@@ -590,6 +596,9 @@ impl Halo {
                 Task::none()
             }
             window::Event::Closed if Some(id) == self.main_id => iced::exit(),
+            window::Event::FileHovered(_) if Some(id) == self.main_id => drop::update(self, drop::Msg::Hovered),
+            window::Event::FilesHoveredLeft if Some(id) == self.main_id => drop::update(self, drop::Msg::Left),
+            window::Event::FileDropped(p) if Some(id) == self.main_id => drop::update(self, drop::Msg::Dropped(p)),
             _ => Task::none(),
         }
     }
@@ -666,6 +675,12 @@ impl Halo {
             if self.palette.open {
                 layers = layers.push(palette::view(self));
             }
+            if let Some(d) = drop::dialog(self) {
+                layers = layers.push(d);
+            }
+            if self.drop.hovering {
+                layers = layers.push(drop::overlay());
+            }
             if let Some(menu) = context_menu::view(self) {
                 layers = layers.push(menu);
             }
@@ -700,6 +715,12 @@ impl Halo {
         }
         if self.palette.open {
             layers = layers.push(palette::view(self));
+        }
+        if let Some(d) = drop::dialog(self) {
+            layers = layers.push(d);
+        }
+        if self.drop.hovering {
+            layers = layers.push(drop::overlay());
         }
         if let Some(menu) = context_menu::view(self) {
             layers = layers.push(menu);

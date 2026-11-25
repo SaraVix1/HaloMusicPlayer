@@ -1,4 +1,5 @@
 pub mod context_menu;
+pub mod drop;
 pub mod fullscreen;
 pub mod lyrics;
 pub mod mini;
