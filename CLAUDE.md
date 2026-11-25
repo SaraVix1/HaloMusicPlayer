@@ -94,6 +94,7 @@ crates/
         │                       # Queue; Settings), now_playing (+ sleep timer), fullscreen (full-screen
         │                       # now playing: blurred art, cover, synced lyrics excerpt, transport),
         │                       # queue_panel (≡ "Up next": slide-in, real play order, drag / remove / clear),
+        │                       # context_menu (right-click on songs / albums / artists, at the cursor),
         │                       # palette (Ctrl+K: multi-word ranked search, Top result, Enter =
         │                       # play now keeping the queue via `player::insert_next`, recent searches),
         │                       # lyrics (panel), mini (mini-player window)
@@ -103,7 +104,7 @@ crates/
             ├── home.rs         # start page: greeting + album rows (recently played / most played /
             │                   # recently added, `get_home_shelves`)
             ├── tracks.rs       # shared track table (Songs / Recently Played / Most Played)
-            ├── songs.rs  recently_played.rs  most_played.rs  albums.rs  folders.rs  queue.rs
+            ├── songs.rs  recently_played.rs  most_played.rs  albums.rs  folders.rs
             ├── library/        # mod.rs (tabs page: Songs | Albums | Artists | Genres | More ▾, Sort ▾;
             │                   # Songs, Albums, Folders keep their own routes) + sort.rs (per-tab sort,
             │                   # saved as `library.sort.<tab>` prefs) + cards.rs + artists, album_artists, composers,

@@ -9,7 +9,6 @@
 //! | Albums | `albums.rs` |
 //! | Library tabs + standalone pages | `library/{artists,album_artists,composers,genres,years}.rs` |
 //! | Folders | `folders.rs` |
-//! | Queue | `queue.rs` |
 //! | Playlists | `playlists.rs` |
 //! | Playlist detail | `playlist_detail.rs` |
 //! | Smart playlist detail | `smart_playlist.rs` |
@@ -29,7 +28,6 @@ pub mod metadata;
 pub mod most_played;
 pub mod playlist_detail;
 pub mod playlists;
-pub mod queue;
 pub mod recently_played;
 pub mod settings;
 pub mod smart_playlist;
@@ -38,7 +36,6 @@ pub mod tracks;
 
 use halo_backend::commands::eq::EqConfig;
 use halo_backend::commands::library::{FolderTrack, Track, TracksQuery};
-use halo_backend::commands::player::QueueTrack;
 use halo_backend::scanner::ScanProgress;
 use iced::{event, mouse, Element, Subscription, Task};
 
@@ -55,7 +52,6 @@ pub struct Pages {
     pub most: tracks::TrackList,
     pub library: library::LibraryState,
     pub folders: folders::FoldersState,
-    pub queue: queue::QueueState,
     pub playlists: playlists::PlaylistsState,
     pub playlist: playlist_detail::DetailState,
     pub smart: smart_playlist::SmartState,
@@ -84,10 +80,6 @@ pub enum Msg {
     SelectFolder(String),
     FolderPlay(Vec<i64>, i64, bool),
 
-    QueueLoaded(Result<Vec<QueueTrack>, String>),
-    QueueRowClick(i64),
-    RemoveFromQueue(i64),
-    ClearQueue,
 
     Playlists(playlists::PMsg),
     PlaylistDetail(playlist_detail::DMsg),
@@ -170,13 +162,6 @@ pub fn update(app: &mut Halo, msg: Msg) -> Task<Message> {
             halo_backend::commands::player::set_queue_and_play(b, ids, start)
         }),
 
-        Msg::QueueLoaded(r) => {
-            app.pages.queue.items.set(r);
-            Task::none()
-        }
-        Msg::QueueRowClick(i) => queue::row_click(app, i),
-        Msg::RemoveFromQueue(id) => queue::remove(app, id),
-        Msg::ClearQueue => queue::clear(app),
 
         Msg::Playlists(m) => playlists::update(app, m),
         Msg::PlaylistDetail(m) => playlist_detail::update(app, m),
@@ -252,7 +237,6 @@ pub fn on_enter(app: &mut Halo) -> Task<Message> {
         Route::Genres => library::load(app, library::Kind::Genres),
         Route::Years => library::load(app, library::Kind::Years),
         Route::Folders => load_folders(app),
-        Route::Queue => queue::load(app),
         Route::Playlists => playlists::load(app),
         Route::Playlist(id) => playlist_detail::load(app, *id),
         Route::SmartPlaylist(id) => smart_playlist::load(app, *id),
@@ -317,13 +301,6 @@ pub fn on_confirm(app: &mut Halo, action: dialogs::ConfirmAction) -> Task<Messag
     }
 }
 
-pub fn on_queue_changed(app: &mut Halo) -> Task<Message> {
-    if matches!(app.route(), Route::Queue) {
-        queue::load(app)
-    } else {
-        Task::none()
-    }
-}
 
 pub fn on_scan_progress(app: &mut Halo, p: ScanProgress) -> Task<Message> {
     settings::on_scan_progress(app, p)
@@ -415,7 +392,6 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         Route::Genres => library::genres::view(app),
         Route::Years => library::years::view(app),
         Route::Folders => library::tabbed(app, LibraryTab::Folders, folders::view(app)),
-        Route::Queue => queue::view(app),
         Route::Playlists => playlists::view(app),
         Route::Playlist(_) => playlist_detail::view(app),
         Route::SmartPlaylist(_) => smart_playlist::view(app),

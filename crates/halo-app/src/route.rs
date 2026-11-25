@@ -94,7 +94,6 @@ pub enum Route {
     SmartPlaylist(i64),
     RecentlyPlayed,
     MostPlayed,
-    Queue,
     /// `/settings?tab=` (`None` = last visited tab)
     Settings(Option<SettingsTab>),
 }
@@ -128,7 +127,6 @@ impl Route {
             Route::Playlists | Route::Playlist(_) | Route::SmartPlaylist(_) => {
                 Section::Playlists
             }
-            Route::Queue => Section::Queue,
             Route::Settings(_) => Section::Settings,
         }
     }
@@ -155,7 +153,6 @@ pub enum Section {
     Home,
     Library,
     Playlists,
-    Queue,
     Settings,
 }
 
@@ -232,7 +229,7 @@ mod tests {
         let mut h = History::default();
         assert!(!h.can_back());
         h.push(Route::Albums);
-        h.push(Route::Queue);
+        h.push(Route::Playlists);
         assert!(h.back());
         assert_eq!(*h.current(), Route::Albums);
         assert!(h.can_forward());

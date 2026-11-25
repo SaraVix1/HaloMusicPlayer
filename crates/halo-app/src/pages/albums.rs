@@ -85,6 +85,9 @@ pub(crate) fn album_card(al: &Album, side: f32) -> Element<'_, Message> {
     .width(Length::Fill)
     .height(Length::Fill)
     .on_press(Message::Navigate(album_route(&name)))
+    .on_right_press_at(crate::components::context_menu::opener(
+        crate::components::context_menu::Target::Album { name: name.clone(), artists: al.album_artists.clone() },
+    ))
     .interaction(iced::mouse::Interaction::Pointer)
     .style(|s| iced::widget::container::Style {
         // group-hover:opacity-80 — veil with the page background.

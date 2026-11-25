@@ -27,6 +27,7 @@ pub fn grid(app: &Halo, key: String, padding_top: Option<f32>) -> Element<'_, Me
                 ..TracksQuery::default()
             }),
             w.min(160.0),
+            crate::components::context_menu::Target::Artist { name: x.name.clone(), album_artist: false },
         ),
     )
 }
