@@ -77,6 +77,11 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             container(seg).padding(2).style(theme::bordered(theme::R_MD)),
         ),
         setting_row(
+            "Song lists",
+            "How Library shows songs. Album pages always use the list.",
+            song_view(app),
+        ),
+        setting_row(
             "Accent from album art",
             "Tint buttons, progress and highlights with the current cover's colour. Off: Halo blue.",
             crate::ui::toggle(
@@ -87,3 +92,29 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     ]
     .into()
 }
+
+/// Cards / List: the same preference as the ☰ / ▦ toggle in Library.
+fn song_view(app: &Halo) -> Element<'_, Message> {
+    use crate::pages::library::{LMsg, SongsView};
+    let cur = app.pages.library.songs_view;
+    let mut seg = row![].spacing(0);
+    for (v, label, ic) in [(SongsView::Cards, "Cards", Icon::LayoutGrid), (SongsView::List, "List", Icon::List)] {
+        let active = cur == v;
+        seg = seg.push(
+            button(row![icon(ic, 14.0), text(label).size(theme::BODY)].spacing(6).align_y(Alignment::Center))
+                .padding(Padding::from([6.0, 12.0]))
+                .style(move |_, s| {
+                    let k = t();
+                    button::Style {
+                        background: active.then(|| k.muted.into()),
+                        text_color: if active || matches!(s, button::Status::Hovered) { k.foreground } else { k.muted_fg },
+                        border: theme::no_border(theme::R_XS),
+                        ..Default::default()
+                    }
+                })
+                .on_press(Message::Page(crate::pages::Msg::Library(LMsg::SongsView(v)))),
+        );
+    }
+    container(seg).padding(2).style(theme::bordered(theme::R_MD)).into()
+}
+

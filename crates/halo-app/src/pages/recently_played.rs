@@ -20,15 +20,15 @@ pub fn load(app: &mut Halo) -> Task<Message> {
 pub fn view(app: &Halo) -> Element<'_, Message> {
     tracks::page(
         app,
-        Some("Recently Played"),
+        Some(crate::ui::h1("Recently Played").into()),
         &app.pages.recent,
         Variant::Recent,
-        None,
         super::common::empty_state(
             crate::icons::Icon::History,
             "Nothing played yet",
             "Your listening history shows up here.",
             Some(("Go to Library", Message::Navigate(crate::route::Route::Library(None)))),
         ),
+        true,
     )
 }

@@ -27,6 +27,23 @@ pub enum Variant {
     Songs,
     Recent,
     MostPlayed,
+    /// An album's page: track number instead of the (identical) cover,
+    /// plays instead of the album; always rows.
+    Album,
+}
+
+/// Track number for album rows: `3`, or `2-05` when the album has several
+/// discs; `—` when untagged.
+pub fn track_label(disc: Option<i64>, track: Option<i64>, multi_disc: bool) -> String {
+    match (track, multi_disc) {
+        (Some(n), true) => format!("{}-{n:02}", disc.unwrap_or(1)),
+        (Some(n), false) => n.to_string(),
+        (None, _) => "—".into(),
+    }
+}
+
+fn multi_disc(list: &TrackList) -> bool {
+    list.tracks.iter().any(|t| t.disc_number.unwrap_or(1) > 1)
 }
 
 /// Track list state for one table.
@@ -136,6 +153,30 @@ pub fn cards<'a>(
     })
 }
 
+/// Tiles without virtualisation (a folder's own songs under its subfolder
+/// cards, inside the page's scroll).
+pub fn cards_static<'a>(list: &'a TrackList, current_track: Option<i64>) -> Element<'a, Message> {
+    let ids = list.ids();
+    iced::widget::responsive(move |size| {
+        let cols = (((size.width + CARDS.gap) / (CARDS.min_item_width + CARDS.gap)).floor() as usize).max(1);
+        let mut col = column![].spacing(CARDS.gap);
+        for (r, chunk) in list.tracks.chunks(cols).enumerate() {
+            let mut line_ = row![].spacing(CARDS.gap);
+            for (c, tr) in chunk.iter().enumerate() {
+                let i = r * cols + c;
+                line_ = line_.push(container(song_card(tr, i, current_track == Some(tr.id), ids.clone())).width(Length::FillPortion(1)));
+            }
+            for _ in chunk.len()..cols {
+                line_ = line_.push(iced::widget::Space::new().width(Length::FillPortion(1)));
+            }
+            col = col.push(line_);
+        }
+        col.into()
+    })
+    .height(Length::Shrink)
+    .into()
+}
+
 /// Wide tile: cover, then title / artist / album · duration, ▶ on hover at
 /// the right. Click plays it (the rest of the list queued after it);
 /// right-click: the song menu.
@@ -197,10 +238,11 @@ fn song_card<'a>(tr: &'a Track, index: usize, is_current: bool, ids: Vec<i64>) -
 /// cards, inside the page's scroll.
 pub fn rows<'a>(list: &'a TrackList, variant: Variant, current_track: Option<i64>) -> Element<'a, Message> {
     let ids = list.ids();
+    let multi = multi_disc(list);
     let mut col = column![];
     for (i, tr) in list.tracks.iter().enumerate() {
         col = col.push(
-            container(track_row(tr, i, variant, current_track == Some(tr.id), list.star_hover, ids.clone()))
+            container(track_row(tr, i, variant, current_track == Some(tr.id), list.star_hover, ids.clone(), multi))
                 .height(ROW_H),
         );
     }
@@ -216,9 +258,10 @@ pub fn table<'a>(
     memory: &'a ScrollMemory,
 ) -> Element<'a, Message> {
     let ids: Vec<i64> = list.ids();
+    let multi = multi_disc(list);
     common::vlist(scroll_key, memory, list.tracks.len(), ROW_H, 0.0, move |i| {
         let tr = &list.tracks[i];
-        track_row(tr, i, variant, current_track == Some(tr.id), list.star_hover, ids.clone())
+        track_row(tr, i, variant, current_track == Some(tr.id), list.star_hover, ids.clone(), multi)
     })
 }
 
@@ -229,6 +272,7 @@ fn track_row<'a>(
     is_current: bool,
     star_hover: Option<(i64, u8)>,
     ids: Vec<i64>,
+    multi_disc: bool,
 ) -> Element<'a, Message> {
     let k = t();
     let id = tr.id;
@@ -247,6 +291,10 @@ fn track_row<'a>(
         },
         Variant::Recent => ui::muted(relative_time(tr.last_played_at), theme::BODY).into(),
         Variant::MostPlayed => ui::muted(crate::format::plural(tr.play_count, "play", "plays"), theme::BODY).into(),
+        Variant::Album if tr.play_count > 0 => {
+            ui::muted(crate::format::plural(tr.play_count, "play", "plays"), theme::BODY).into()
+        }
+        Variant::Album => blank(),
     };
     let hover_val = star_hover.filter(|(tid, _)| *tid == id).map(|(_, s)| s);
     let rating = move || {
@@ -261,10 +309,16 @@ fn track_row<'a>(
     };
     let title_color = if is_current { k.primary } else { k.foreground };
 
+    let lead: Element<'a, Message> = if variant == Variant::Album {
+        container(ui::muted(track_label(tr.disc_number, tr.track_number, multi_disc), theme::BODY))
+            .width(Length::Fill)
+            .align_x(Alignment::Center)
+            .into()
+    } else {
+        container(art(tr.album_art_path.as_deref(), 40.0, theme::R_SM)).padding(Padding::ZERO.left(12.0)).into()
+    };
     let base = cells([
-        container(art(tr.album_art_path.as_deref(), 40.0, theme::R_SM))
-            .padding(Padding::ZERO.left(12.0))
-            .into(),
+        lead,
         px3(
             column![
                 line(title).size(theme::BODY).font(theme::MEDIUM).color(title_color).width(Length::Fill),
@@ -387,40 +441,31 @@ pub fn play_buttons<'a>(ids: Vec<i64>) -> Element<'a, Message> {
     row![play_all, shuffle].spacing(8).align_y(Alignment::Center).into()
 }
 
-/// Page frame shared by the track-list pages: header with Play All /
-/// Shuffle Play + count, optional filter chips, then the table.
-/// Track list page. `title: None` leaves out the h1 (the Library page's
-/// Songs tab, whose title is the tab bar).
+/// Track list page: `head` (a breadcrumb, an h1, or nothing — the Songs
+/// tab, whose title is the tab bar) on the left of the count and Play All /
+/// Shuffle Play; `toggle` adds ☰ / ▦ there (pages outside the Library tab
+/// bar). Album pages are always rows; the rest follow the Cards / List view.
 pub fn page<'a>(
     app: &'a Halo,
-    title: Option<&'a str>,
+    head: Option<Element<'a, Message>>,
     list: &'a TrackList,
     variant: Variant,
-    q: Option<&TracksQuery>,
     empty: Element<'a, Message>,
+    toggle: bool,
 ) -> Element<'a, Message> {
     let current = app.player.current_track.as_ref().map(|t| t.track_id);
     let n = list.tracks.len();
     let mut right = row![common::count(n, "track", "tracks"), play_buttons(list.ids())]
         .spacing(12)
         .align_y(Alignment::Center);
-    // Filtered song lists (album, artist …) sort here; the Songs tab's Sort
-    // button is in the Library tab bar.
-    if let (Some(_), Variant::Songs, Some(q)) = (title, variant, q) {
-        right = right.push(super::library::sort_button(
-            app,
-            super::library::sort::song_options(q),
-            super::library::sort::of_query(q),
-        ));
+    if toggle && variant != Variant::Album {
+        right = right.push(super::library::view_toggle(app.pages.library.songs_view));
     }
-    let header: Element<'a, Message> = match title {
-        Some(title) => common::header(title, right),
+    let header: Element<'a, Message> = match head {
+        Some(h) => row![h, crate::ui::fill(), right].spacing(16).align_y(Alignment::Center).into(),
         None => row![crate::ui::fill(), right].align_y(Alignment::Center).into(),
     };
     let mut col = column![header].spacing(16).height(Length::Fill);
-    if let Some(c) = q.and_then(super::songs::chips) {
-        col = col.push(c);
-    }
     if let Some(e) = &list.error {
         col = col.push(common::error_text(e));
     }
@@ -429,18 +474,26 @@ pub fn page<'a>(
         note("Loading…")
     } else if n == 0 {
         empty
+    } else if variant != Variant::Album && app.pages.library.songs_view == super::library::SongsView::Cards {
+        cards(list, current, key, &app.pages.scroll)
     } else {
-        // The Songs tab (no h1 of its own) can show cards instead of rows.
-        let as_cards = title.is_none()
-            && variant == Variant::Songs
-            && app.pages.library.songs_view == super::library::SongsView::Cards;
-        if as_cards {
-            cards(list, current, key, &app.pages.scroll)
-        } else {
-            table(list, variant, current, key, &app.pages.scroll)
-        }
+        table(list, variant, current, key, &app.pages.scroll)
     };
     col = col.push(body);
     common::padded(col)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::track_label;
+
+    #[test]
+    fn album_track_numbers() {
+        assert_eq!(track_label(Some(1), Some(3), false), "3");
+        assert_eq!(track_label(None, Some(12), false), "12");
+        assert_eq!(track_label(Some(2), Some(5), true), "2-05");
+        assert_eq!(track_label(None, Some(7), true), "1-07");
+        assert_eq!(track_label(Some(1), None, true), "—");
+    }
 }
 

@@ -373,10 +373,7 @@ pub fn overlay(app: &Halo) -> Option<Element<'_, Message>> {
 pub fn view(app: &Halo) -> Element<'_, Message> {
     match app.route() {
         Route::Home => home::view(app),
-        Route::Songs(q) if crate::route::is_all_songs(q) => {
-            library::tabbed(app, LibraryTab::Songs, songs::view(app, q))
-        }
-        Route::Songs(q) => songs::view(app, q),
+        Route::Songs(q) => library::tabbed(app, crate::route::filter_tab(q), songs::view(app, q)),
         Route::RecentlyPlayed => recently_played::view(app),
         Route::MostPlayed => most_played::view(app),
         Route::Albums => library::tabbed(
