@@ -109,16 +109,18 @@ fn links<'a>(values: &[String], size: f32, make: impl Fn(&str) -> TracksQuery) -
     container(r).clip(true).width(Length::Fill).into()
 }
 
-/// Song cards grid (Songs tab, ▦ Cards): ~150 px cards, as many columns
-/// as fit.
+/// Song cards grid (Songs tab, ▦ Cards): wide tiles (cover left, text
+/// right), at least 260 px, as many columns as fit.
 const CARDS: GridSpec = GridSpec {
-    min_item_width: 150.0,
-    row_height: 236.0,
-    gap: 16.0,
+    min_item_width: 260.0,
+    row_height: CARD_H,
+    gap: 12.0,
     px: 0.0,
     padding_top: 0.0,
     padding_bottom: 24.0,
 };
+const CARD_H: f32 = 72.0;
+const CARD_ART: f32 = 56.0;
 
 /// Virtualised grid of song cards.
 pub fn cards<'a>(
@@ -128,47 +130,50 @@ pub fn cards<'a>(
     memory: &'a ScrollMemory,
 ) -> Element<'a, Message> {
     let ids: Vec<i64> = list.ids();
-    common::vgrid(scroll_key, memory, list.tracks.len(), CARDS, move |i, w| {
+    common::vgrid(scroll_key, memory, list.tracks.len(), CARDS, move |i, _w| {
         let tr = &list.tracks[i];
-        song_card(tr, i, w.min(196.0), current_track == Some(tr.id), ids.clone())
+        song_card(tr, i, current_track == Some(tr.id), ids.clone())
     })
 }
 
-/// Cover with ▶ on hover, title, artist. Click plays it (the rest of the
-/// list queued after it); right-click: the song menu.
-fn song_card<'a>(tr: &'a Track, index: usize, side: f32, is_current: bool, ids: Vec<i64>) -> Element<'a, Message> {
+/// Wide tile: cover, then title / artist / album · duration, ▶ on hover at
+/// the right. Click plays it (the rest of the list queued after it);
+/// right-click: the song menu.
+fn song_card<'a>(tr: &'a Track, index: usize, is_current: bool, ids: Vec<i64>) -> Element<'a, Message> {
     let k = t();
     let title = tr.title.clone().unwrap_or_else(|| file_name(&tr.file_path));
     let artists = if tr.artists.is_empty() { "Unknown artist".to_string() } else { tr.artists.join(", ") };
+    let mut third = tr.album_name.clone().filter(|s| !s.is_empty()).unwrap_or_default();
+    if tr.duration_ms.is_some() {
+        third = if third.is_empty() { duration(tr.duration_ms) } else { format!("{third} · {}", duration(tr.duration_ms)) };
+    }
     let play = Message::Player(PlayerCmd::PlayTracks(ids, index as i64));
-    let inner = (side - 2.0 * theme::CARD_PAD).max(0.0);
-    let cover = ui::art_sized(tr.album_art_path.as_deref(), Length::Fill, Length::Fill, inner, theme::R_LG);
+    let text_col = column![
+        line(title).size(theme::BODY).font(theme::MEDIUM).color(if is_current { k.primary } else { k.foreground }).width(Length::Fill),
+        line(artists).size(theme::SMALL).color(k.muted_fg).width(Length::Fill),
+        line(third).size(theme::SMALL).color(a(k.muted_fg, 0.8)).width(Length::Fill),
+    ]
+    .spacing(1)
+    .width(Length::Fill);
+    let base = row![art(tr.album_art_path.as_deref(), CARD_ART, theme::R_MD), text_col]
+        .spacing(12)
+        .align_y(Alignment::Center)
+        .height(Length::Fill);
     let play_btn = button(
-        iced::widget::center(container(icon(Icon::Play, 16.0)).padding(Padding::ZERO.left(2.0))).width(40).height(40),
+        iced::widget::center(container(icon(Icon::Play, 14.0)).padding(Padding::ZERO.left(2.0))).width(34).height(34),
     )
     .padding(0)
     .style(|th, st| {
         let mut s = theme::btn_primary(th, st);
         s.border.radius = theme::radius(theme::R_FULL);
-        s.shadow = theme::shadow_lg();
         s
     })
     .on_press(play.clone());
-    let art_box = hover(
-        container(cover).width(Length::Fill).height(Length::Fill),
-        container(play_btn).width(Length::Fill).height(Length::Fill).align_x(Alignment::End).align_y(Alignment::End).padding(8),
-    );
-    let content = column![
-        container(art_box).width(Length::Fill).height(inner),
-        column![
-            line(title).size(theme::BODY).font(theme::MEDIUM).color(if is_current { k.primary } else { k.foreground }).width(Length::Fill),
-            line(artists).size(theme::SMALL).color(k.muted_fg).width(Length::Fill),
-        ],
-    ]
-    .spacing(8);
-    surface(content)
+    let overlay = container(play_btn).width(Length::Fill).height(Length::Fill).align_x(Alignment::End).align_y(Alignment::Center);
+    surface(hover(base, overlay))
         .width(Length::Fill)
-        .padding(theme::CARD_PAD)
+        .height(CARD_H)
+        .padding(Padding::from([8.0, 10.0]))
         .on_press(play)
         .on_right_press(crate::components::context_menu::opener(crate::components::context_menu::Target::Track {
             id: tr.id,
@@ -177,7 +182,14 @@ fn song_card<'a>(tr: &'a Track, index: usize, side: f32, is_current: bool, ids: 
             playlist: None,
         }))
         .interaction(iced::mouse::Interaction::Pointer)
-        .style(|s| theme::card(s.hovered))
+        .style(move |s| {
+            let mut st = theme::card(s.hovered);
+            // Resting tiles get a faint surface so the grid reads as tiles.
+            if !s.hovered {
+                st.background = Some(a(t().muted, if is_current { 0.5 } else { 0.18 }).into());
+            }
+            st
+        })
         .into()
 }
 
