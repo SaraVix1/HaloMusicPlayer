@@ -306,6 +306,9 @@ impl Halo {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if halo_backend::profile::enabled() {
+            profile_count(&message);
+        }
         match message {
             Message::Noop => Task::none(),
             Message::AccentPicked(id, c) => {
@@ -905,3 +908,32 @@ fn exe_icon(id: window::Id) -> Task<Message> {
         Task::none()
     }
 }
+
+/// HALO_PROFILE: every 5 s, print how many messages of each kind arrived
+/// (finds what keeps an idle app busy).
+fn profile_count(m: &Message) {
+    use std::collections::BTreeMap;
+    use std::sync::Mutex;
+    use std::time::Instant;
+    static STATE: Mutex<Option<(Instant, BTreeMap<String, u32>)>> = Mutex::new(None);
+    let name = format!("{m:?}");
+    let key: String = name.split(|c: char| c == '(' || c == ' ' || c == '{').take(1).collect::<String>()
+        + match m {
+            Message::Backend(b) => {
+                let d = format!("{b:?}");
+                Box::leak(format!("::{}", d.split(|c: char| c == '(' || c == ' ' || c == '{').next().unwrap_or("")).into_boxed_str())
+            }
+            Message::Page(p) => Box::leak(format!("::{}", format!("{p:?}").split('(').next().unwrap_or("")).into_boxed_str()),
+            _ => "",
+        };
+    let mut g = STATE.lock().unwrap();
+    let (start, counts) = g.get_or_insert_with(|| (Instant::now(), BTreeMap::new()));
+    *counts.entry(key).or_default() += 1;
+    if start.elapsed().as_secs() >= 5 {
+        let total: u32 = counts.values().sum();
+        let list: Vec<String> = counts.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        eprintln!("[profile] messages/5s: {total}  {}", list.join(" "));
+        *g = None;
+    }
+}
+
