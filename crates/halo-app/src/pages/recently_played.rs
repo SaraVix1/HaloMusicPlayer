@@ -4,7 +4,6 @@
 use halo_backend::commands::library;
 use iced::{Element, Task};
 
-use super::common::note;
 use super::tracks::{self, Variant};
 use super::Msg;
 use crate::app::{bg, Halo, Message};
@@ -25,6 +24,11 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         &app.pages.recent,
         Variant::Recent,
         None,
-        note("No recently played tracks."),
+        super::common::empty_state(
+            crate::icons::Icon::History,
+            "Nothing played yet",
+            "Your listening history shows up here.",
+            Some(("Go to Library", Message::Navigate(crate::route::Route::Library(None)))),
+        ),
     )
 }

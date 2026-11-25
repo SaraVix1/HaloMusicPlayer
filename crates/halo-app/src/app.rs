@@ -53,6 +53,8 @@ pub enum Message {
     Noop,
     /// Accent picked from a track's art (track id, colour or none).
     AccentPicked(Option<i64>, Option<iced::Color>),
+    /// Redraw tick while a cover / accent fade runs.
+    FadeTick,
     Error(String),
     /// Several messages handled in order.
     Batch(Vec<Message>),
@@ -123,6 +125,8 @@ pub struct Halo {
     pub theme_pref: String,
     /// Settings → Appearance → "Accent from album art".
     pub accent_from_art: bool,
+    /// Cover cross-fade and accent glide on song change.
+    pub fades: crate::fade::Fades,
     pub system_mode: iced::theme::Mode,
 
     pub player: FullPlayerState,
@@ -195,6 +199,7 @@ impl Halo {
             main_visible: true,
             mini_id: None,
             theme_pref,
+            fades: crate::fade::Fades::default(),
             accent_from_art: commands::ui::get_pref(ACCENT_PREF.into(), backend.db())
                 .ok()
                 .flatten()
@@ -219,7 +224,7 @@ impl Halo {
         };
         app.apply_theme();
         let track_task = app.on_track_changed();
-        let page_task = pages::on_enter(&mut app);
+        let page_task = Task::batch([pages::on_enter(&mut app), pages::load_library_count(&app)]);
         (
             app,
             Task::batch([
@@ -272,6 +277,8 @@ impl Halo {
     /// Track changed → refetch waveform, Last.fm loved state, lyrics.
     fn on_track_changed(&mut self) -> Task<Message> {
         let id = self.player.current_track.as_ref().map(|t| t.track_id);
+        let art = self.player.current_track.as_ref().and_then(|t| t.album_art_path.clone());
+        self.fades.set_art(art);
         Task::batch([
             now_playing::on_track(self, id),
             lyrics::on_track(self, id),
@@ -282,7 +289,7 @@ impl Halo {
 
     /// Pick the accent from the current track's art (off the UI thread), or
     /// use Halo's default when there's no art or the setting is off.
-    pub fn refresh_accent(&self) -> Task<Message> {
+    pub fn refresh_accent(&mut self) -> Task<Message> {
         let cur = self.player.current_track.as_ref();
         let art = cur.and_then(|t| t.album_art_path.clone()).filter(|p| !p.is_empty());
         match art {
@@ -291,7 +298,7 @@ impl Halo {
                 bg(&self.backend, move |_| crate::accent::from_path(&path), move |c| Message::AccentPicked(id, c))
             }
             _ => {
-                theme::set_accent(theme::DEFAULT_ACCENT);
+                self.fades.set_accent(theme::DEFAULT_ACCENT);
                 Task::none()
             }
         }
@@ -303,8 +310,12 @@ impl Halo {
             Message::AccentPicked(id, c) => {
                 // Ignore a late result for a track that's no longer playing.
                 if self.accent_from_art && id == self.player.current_track.as_ref().map(|t| t.track_id) {
-                    theme::set_accent(c.unwrap_or(theme::DEFAULT_ACCENT));
+                    self.fades.set_accent(c.unwrap_or(theme::DEFAULT_ACCENT));
                 }
+                Task::none()
+            }
+            Message::FadeTick => {
+                self.fades.tick();
                 Task::none()
             }
             Message::Error(e) => {
@@ -545,6 +556,9 @@ impl Halo {
             if cmd && matches!(&key, Key::Character(c) if c.eq_ignore_ascii_case("m")) {
                 return self.restore_main();
             }
+            if crate::shortcuts::shortcut(&key, mods) == Some(crate::shortcuts::Shortcut::TogglePlay) {
+                return self.update(Message::Player(PlayerCmd::TogglePlay));
+            }
             return Task::none();
         }
         match &key {
@@ -580,6 +594,26 @@ impl Halo {
             // from the palette's own modifier tracking).
             Key::Named(key::Named::Enter) if self.palette.open => Task::none(),
             Key::Named(key::Named::Enter) if cmd => pages::on_ctrl_enter(self),
+            _ => match crate::shortcuts::shortcut(&key, mods) {
+                Some(s) => self.run_shortcut(s),
+                None => Task::none(),
+            },
+        }
+    }
+
+    fn run_shortcut(&mut self, s: crate::shortcuts::Shortcut) -> Task<Message> {
+        use crate::shortcuts::{seek_target, Shortcut};
+        let has_track = self.player.current_track.is_some();
+        match s {
+            Shortcut::TogglePlay => self.update(Message::Player(PlayerCmd::TogglePlay)),
+            Shortcut::Previous if has_track => self.update(Message::Player(PlayerCmd::Previous)),
+            Shortcut::Next if has_track => self.update(Message::Player(PlayerCmd::Next)),
+            Shortcut::Seek(delta) if has_track => {
+                let p = &self.player.player;
+                let to = seek_target(p.position_ms, p.duration_ms, delta);
+                self.update(Message::Player(PlayerCmd::Seek(to)))
+            }
+            Shortcut::Lyrics => lyrics::toggle(self),
             _ => Task::none(),
         }
     }
@@ -740,12 +774,9 @@ impl Halo {
             tray::events().map(Message::Tray),
             event::listen_with(|e, status, id| match e {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-                    let has_cmd = modifiers.command() || modifiers.control();
-                    // Shortcuts with Ctrl/Cmd fire even from text fields;
-                    // plain keys only when nothing captured them.
-                    // Escape always (closes dialogs / palette from inputs).
-                    let escape = matches!(key, Key::Named(key::Named::Escape));
-                    (has_cmd || escape || status == event::Status::Ignored)
+                    // Ctrl shortcuts and Esc even from text fields; plain keys
+                    // (and Ctrl+arrows) only when nothing used them.
+                    crate::shortcuts::deliver(&key, modifiers, status == event::Status::Captured)
                         .then_some(Message::Key(key, modifiers, id))
                 }
                 _ => None,
@@ -764,6 +795,12 @@ impl Halo {
             subs.push(s);
         }
         if let Some(s) = palette::subscription(self) {
+            subs.push(s);
+        }
+        if let Some(s) = crate::fade::subscription(&self.fades) {
+            subs.push(s);
+        }
+        if let Some(s) = fullscreen::subscription(self) {
             subs.push(s);
         }
         Subscription::batch(subs)

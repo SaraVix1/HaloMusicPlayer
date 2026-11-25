@@ -107,26 +107,17 @@ pub fn chips<'a>(q: &TracksQuery) -> Option<Element<'a, Message>> {
     Some(r.wrap().into())
 }
 
-fn empty_library<'a>() -> Element<'a, Message> {
-    let k = t();
-    row![
-        text("No tracks found. ").size(theme::BODY).color(k.muted_fg),
-        button(text("Add a folder and scan").size(theme::BODY))
-            .padding(0)
-            .style(theme::btn_link)
-            .on_press(Message::Navigate(Route::Settings(Some(
-                crate::route::SettingsTab::Library
-            )))),
-        text(" to get started.").size(theme::BODY).color(k.muted_fg),
-    ]
-    .into()
-}
 
 pub fn view<'a>(app: &'a Halo, q: &'a TracksQuery) -> Element<'a, Message> {
     // The unfiltered list is the Library page's Songs tab (no h1 of its own);
     // a filtered one (album, artist, genre …) is a page titled "All Songs"
     // with filter chips, as before.
     let title = (!crate::route::is_all_songs(q)).then_some("All Songs");
-    tracks::page(app, title, &app.pages.songs, Variant::Songs, Some(q), empty_library())
+    let empty = if crate::route::is_all_songs(q) {
+        super::common::empty_or_note(app, "No songs.")
+    } else {
+        super::common::note("No songs match.")
+    };
+    tracks::page(app, title, &app.pages.songs, Variant::Songs, Some(q), empty)
 }
 

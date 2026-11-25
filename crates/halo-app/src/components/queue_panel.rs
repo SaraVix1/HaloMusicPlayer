@@ -233,7 +233,7 @@ fn panel(app: &Halo) -> Element<'_, Message> {
             column![
                 ui::muted(if playing { "Now playing" } else { "Paused" }, theme::SMALL),
                 row![
-                    art(q.album_art_path.as_deref(), 48.0, theme::R_SM),
+                    app.fades.cover(q.album_art_path.as_deref(), 48.0, theme::R_SM),
                     column![
                         line(title_of(q)).size(theme::BODY).font(theme::MEDIUM).color(k.primary).width(Length::Fill),
                         line(artists_of(q)).size(theme::SMALL).color(k.muted_fg).width(Length::Fill),

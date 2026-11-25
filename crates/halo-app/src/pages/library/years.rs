@@ -57,7 +57,7 @@ fn year_card<'a>(y: &YearStat) -> Element<'a, Message> {
 pub fn grid(app: &Halo, key: String, padding_top: Option<f32>) -> Element<'_, Message> {
     coll_grid(
         &app.pages.library.years,
-        "No year tags found — scan a folder to get started.",
+        crate::pages::common::empty_or_note(app, "No year tags found."),
         YEARS,
         key,
         &app.pages.scroll,

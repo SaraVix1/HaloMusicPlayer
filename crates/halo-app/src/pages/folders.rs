@@ -148,9 +148,15 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             .padding(16)
             .into()
     } else if st.leaves.is_empty() {
-        container(ui::muted("No managed folders yet — add one in Settings.", theme::SMALL))
-            .padding(16)
-            .into()
+        common::empty_state(
+            Icon::Folder,
+            "No music folders yet",
+            "Add one to start your library.",
+            Some((
+                "Add music folder",
+                Message::Navigate(crate::route::Route::Settings(Some(crate::route::SettingsTab::Library))),
+            )),
+        )
     } else {
         let mut col = column![];
         for leaf in &st.leaves {

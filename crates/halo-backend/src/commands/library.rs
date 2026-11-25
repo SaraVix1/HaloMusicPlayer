@@ -328,6 +328,12 @@ pub fn get_albums(db: &Mutex<Connection>) -> Result<Vec<Album>, String> {
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
 }
 
+/// Tracks in the library (empty-library states).
+pub fn track_count(db: &Mutex<Connection>) -> Result<i64, String> {
+    let conn = db.lock().map_err(|e| e.to_string())?;
+    conn.query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0)).map_err(|e| e.to_string())
+}
+
 // ── Home shelves ──────────────────────────────────────────────────────────────
 
 /// The three album rows on the Home page.

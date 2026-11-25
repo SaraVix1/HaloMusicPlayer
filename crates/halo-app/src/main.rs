@@ -3,11 +3,13 @@
 
 mod accent;
 mod app;
+mod fade;
 mod components;
 mod format;
 mod icons;
 mod pages;
 mod route;
+mod shortcuts;
 mod single_instance;
 mod theme;
 mod tray;

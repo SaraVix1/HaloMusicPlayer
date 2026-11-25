@@ -220,6 +220,60 @@ pub fn spacer<'a>(h: f32) -> Element<'a, Message> {
     column![].height(h).into()
 }
 
+
+/// Shared empty state: icon, short title, one-line hint, optional button.
+pub fn empty_state<'a>(
+    icon: crate::icons::Icon,
+    title: &'a str,
+    hint: &'a str,
+    action: Option<(&'a str, Message)>,
+) -> Element<'a, Message> {
+    let k = crate::theme::t();
+    let mut col = column![
+        crate::icons::icon(icon, 36.0).color(crate::theme::a(k.muted_fg, 0.7)),
+        text(title).size(theme::TITLE).font(theme::SEMIBOLD),
+        ui::muted(hint, theme::BODY),
+    ]
+    .spacing(10)
+    .align_x(iced::Alignment::Center);
+    if let Some((label, msg)) = action {
+        col = col.push(
+            iced::widget::button(text(label).size(theme::BODY))
+                .padding(iced::Padding::from([8.0, 16.0]))
+                .style(theme::btn_primary)
+                .on_press(msg),
+        );
+    }
+    container(col)
+        .width(Length::Fill)
+        .padding(iced::Padding::from([48.0, 16.0]))
+        .align_x(iced::Alignment::Center)
+        .into()
+}
+
+/// The library has no songs at all.
+pub fn library_empty<'a>() -> Element<'a, Message> {
+    empty_state(
+        crate::icons::Icon::FolderOpen,
+        "No songs yet",
+        "Drop a music folder here, or add one.",
+        Some((
+            "Add music folder",
+            Message::Navigate(crate::route::Route::Settings(Some(crate::route::SettingsTab::Library))),
+        )),
+    )
+}
+
+/// Empty library → `library_empty()`; otherwise `text` as a short note
+/// (a tab with nothing in it, e.g. no composer tags).
+pub fn empty_or_note<'a>(app: &crate::app::Halo, text: &'a str) -> Element<'a, Message> {
+    if app.pages.library_count == Some(0) {
+        library_empty()
+    } else {
+        note(text)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::window;
