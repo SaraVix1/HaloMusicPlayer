@@ -159,6 +159,10 @@ fn empty_library<'a>() -> Element<'a, Message> {
 }
 
 pub fn view<'a>(app: &'a Halo, q: &'a TracksQuery) -> Element<'a, Message> {
-    tracks::page(app, "All Songs", &app.pages.songs, Variant::Songs, Some(q), empty_library())
+    // The unfiltered list is the Library page's Songs tab (no h1 of its own);
+    // a filtered one (album, artist, genre …) is a page titled "All Songs"
+    // with filter chips, as before.
+    let title = (!crate::route::is_all_songs(q)).then_some("All Songs");
+    tracks::page(app, title, &app.pages.songs, Variant::Songs, Some(q), empty_library())
 }
 

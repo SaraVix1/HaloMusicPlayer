@@ -125,3 +125,31 @@ unsafe fn load_exe_icon(size: i32) -> Option<*mut std::ffi::c_void> {
         LoadImageW(HINSTANCE(module.0), name, IMAGE_ICON, size, size, LR_DEFAULTCOLOR).ok()?;
     Some(handle.0)
 }
+
+/// The current hour (0–23) in the user's local time zone, e.g. for the
+/// Home page greeting. `None` if the platform can't tell.
+#[cfg(unix)]
+pub fn local_hour() -> Option<u8> {
+    // SAFETY: `time(NULL)` and `localtime_r` with a valid out-pointer to a
+    // zeroed `tm`; localtime_r is the thread-safe variant.
+    unsafe {
+        let now = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&now, &mut tm).is_null() {
+            return None;
+        }
+        u8::try_from(tm.tm_hour).ok()
+    }
+}
+
+#[cfg(windows)]
+pub fn local_hour() -> Option<u8> {
+    // SAFETY: no arguments; returns the local time by value.
+    let now = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    u8::try_from(now.wHour).ok()
+}
+
+#[cfg(not(any(unix, windows)))]
+pub fn local_hour() -> Option<u8> {
+    None
+}

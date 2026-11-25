@@ -16,7 +16,8 @@ pub struct Track {
     pub album_art_path: Option<String>,
     pub file_path: String,
     pub folder_id: Option<i64>,
-    pub scanned_at: String,
+    /// When the track first entered the library (`added_at`).
+    pub added_at: String,
     pub rating: i64,
     pub play_count: i64,
     pub skip_count: i64,
@@ -45,7 +46,8 @@ fn order_by_clause(sort: Option<&str>, direction: Option<&str>) -> String {
         "genre" => "genres_csv COLLATE NOCASE",
         "duration" => "t.duration_ms",
         "year" => "t.year",
-        "scanned_at" => "t.scanned_at",
+        // Sort key kept as "scanned_at" (routes / saved sorts use it).
+        "scanned_at" | "added_at" => "t.added_at",
         "track_number" => "t.disc_number, t.track_number",
         "rating" => "t.rating",
         "play_count" => "t.play_count",
@@ -112,7 +114,8 @@ pub fn get_tracks(query: TracksQuery, db: &Mutex<Connection>) -> Result<Vec<Trac
 
     let sql = format!(
         "SELECT t.id, t.title, t.album_name, t.duration_ms, t.track_number, t.disc_number,
-                t.year, t.album_art_path, t.file_path, t.folder_id, t.scanned_at,
+                t.year, t.album_art_path, t.file_path, t.folder_id,
+                COALESCE(t.added_at, t.scanned_at, ''),
                 t.rating, t.play_count, t.skip_count, t.last_played_at,
                 (SELECT GROUP_CONCAT(name, '||') FROM (
                  SELECT a.name FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
@@ -143,7 +146,7 @@ pub fn get_tracks(query: TracksQuery, db: &Mutex<Connection>) -> Result<Vec<Trac
                 album_art_path: row.get(7)?,
                 file_path: row.get(8)?,
                 folder_id: row.get(9)?,
-                scanned_at: row.get(10)?,
+                added_at: row.get(10)?,
                 rating: row.get(11)?,
                 play_count: row.get(12)?,
                 skip_count: row.get(13)?,
@@ -166,7 +169,8 @@ pub fn get_tracks(query: TracksQuery, db: &Mutex<Connection>) -> Result<Vec<Trac
 pub fn get_recently_played(db: &Mutex<Connection>) -> Result<Vec<Track>, String> {
     let conn = db.lock().map_err(|e| e.to_string())?;
     let sql = "SELECT t.id, t.title, t.album_name, t.duration_ms, t.track_number, t.disc_number,
-                t.year, t.album_art_path, t.file_path, t.folder_id, t.scanned_at,
+                t.year, t.album_art_path, t.file_path, t.folder_id,
+                COALESCE(t.added_at, t.scanned_at, ''),
                 t.rating, t.play_count, t.skip_count, t.last_played_at,
                 (SELECT GROUP_CONCAT(name, '||') FROM (
                  SELECT a.name FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
@@ -194,7 +198,7 @@ pub fn get_recently_played(db: &Mutex<Connection>) -> Result<Vec<Track>, String>
                 album_art_path: row.get(7)?,
                 file_path: row.get(8)?,
                 folder_id: row.get(9)?,
-                scanned_at: row.get(10)?,
+                added_at: row.get(10)?,
                 rating: row.get(11)?,
                 play_count: row.get(12)?,
                 skip_count: row.get(13)?,
@@ -216,7 +220,8 @@ pub fn get_recently_played(db: &Mutex<Connection>) -> Result<Vec<Track>, String>
 pub fn get_most_played(db: &Mutex<Connection>) -> Result<Vec<Track>, String> {
     let conn = db.lock().map_err(|e| e.to_string())?;
     let sql = "SELECT t.id, t.title, t.album_name, t.duration_ms, t.track_number, t.disc_number,
-                t.year, t.album_art_path, t.file_path, t.folder_id, t.scanned_at,
+                t.year, t.album_art_path, t.file_path, t.folder_id,
+                COALESCE(t.added_at, t.scanned_at, ''),
                 t.rating, t.play_count, t.skip_count, t.last_played_at,
                 (SELECT GROUP_CONCAT(name, '||') FROM (
                  SELECT a.name FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
@@ -244,7 +249,7 @@ pub fn get_most_played(db: &Mutex<Connection>) -> Result<Vec<Track>, String> {
                 album_art_path: row.get(7)?,
                 file_path: row.get(8)?,
                 folder_id: row.get(9)?,
-                scanned_at: row.get(10)?,
+                added_at: row.get(10)?,
                 rating: row.get(11)?,
                 play_count: row.get(12)?,
                 skip_count: row.get(13)?,
@@ -316,6 +321,102 @@ pub fn get_albums(db: &Mutex<Connection>) -> Result<Vec<Album>, String> {
         .map_err(|e| e.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+// ── Home shelves ──────────────────────────────────────────────────────────────
+
+/// The three album rows on the Home page.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct HomeShelves {
+    /// Albums by their most recent play.
+    pub recently_played: Vec<Album>,
+    /// Albums by total play count.
+    pub most_played: Vec<Album>,
+    /// Albums by when they first entered the library (`added_at`).
+    pub recently_added: Vec<Album>,
+    /// Tracks in the library (0 → Home shows the empty state).
+    pub library_tracks: i64,
+}
+
+/// Up to `limit` albums per Home row, in one lock of the DB.
+pub fn get_home_shelves(limit: usize, db: &Mutex<Connection>) -> Result<HomeShelves, String> {
+    let conn = db.lock().map_err(|e| e.to_string())?;
+    let limit = limit as i64;
+    Ok(HomeShelves {
+        recently_played: album_shelf(&conn, "MAX(t.last_played_at)", "k IS NOT NULL", limit)?,
+        most_played: album_shelf(&conn, "SUM(t.play_count)", "k > 0", limit)?,
+        recently_added: album_shelf(
+            &conn,
+            "MAX(COALESCE(t.added_at, t.scanned_at))",
+            "k IS NOT NULL",
+            limit,
+        )?,
+        library_tracks: conn
+            .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?,
+    })
+}
+
+/// Albums ranked by the aggregate `key` (descending; ties by name), keeping
+/// those where `having` holds. Picks the top `limit` names first, then
+/// looks up art / artists for just those rows. Subtitle artists are the
+/// album artists, or the track artists when the album has none tagged.
+fn album_shelf(conn: &Connection, key: &str, having: &str, limit: i64) -> Result<Vec<Album>, String> {
+    let sql = format!(
+        "WITH top AS (
+             SELECT t.album_name AS name, {key} AS k
+             FROM tracks t
+             WHERE t.album_name IS NOT NULL AND t.album_name != ''
+             GROUP BY t.album_name
+             HAVING {having}
+             ORDER BY k DESC, t.album_name COLLATE NOCASE
+             LIMIT ?1)
+         SELECT top.name,
+                (SELECT COUNT(*) FROM tracks t1 WHERE t1.album_name = top.name),
+                (SELECT MIN(t1.year) FROM tracks t1 WHERE t1.album_name = top.name),
+                (SELECT t2.album_art_path FROM tracks t2
+                 WHERE t2.album_name = top.name AND t2.album_art_path IS NOT NULL
+                 LIMIT 1),
+                (SELECT GROUP_CONCAT(name, '||') FROM (
+                 SELECT DISTINCT aa.name FROM tracks t3
+                 JOIN track_album_artists taa ON taa.track_id = t3.id
+                 JOIN album_artists aa ON aa.id = taa.album_artist_id
+                 WHERE t3.album_name = top.name
+                 ORDER BY aa.name COLLATE NOCASE)),
+                (SELECT GROUP_CONCAT(name, '||') FROM (
+                 SELECT DISTINCT a.name FROM tracks t4
+                 JOIN track_artists ta ON ta.track_id = t4.id
+                 JOIN artists a ON a.id = ta.artist_id
+                 WHERE t4.album_name = top.name
+                 ORDER BY a.name COLLATE NOCASE))
+         FROM top
+         ORDER BY top.k DESC, top.name COLLATE NOCASE"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([limit], |row| {
+            let album_artists: Option<String> = row.get(4)?;
+            let artists: Option<String> = row.get(5)?;
+            Ok(Album {
+                name: row.get(0)?,
+                track_count: row.get(1)?,
+                year: row.get(2)?,
+                album_art_path: row.get(3)?,
+                album_artists: split_csv(album_artists.or(artists)),
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+fn split_csv(csv: Option<String>) -> Vec<String> {
+    csv.map(|s| {
+        s.split("||")
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 // ── Artists ───────────────────────────────────────────────────────────────────
@@ -548,4 +649,102 @@ pub fn get_years(db: &Mutex<Connection>) -> Result<Vec<YearStat>, String> {
         .map_err(|e| e.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod home_tests {
+    use super::*;
+    use rusqlite::params;
+
+    /// Real on-disk DB (WAL, all migrations) in a fresh temp dir.
+    fn test_db(name: &str) -> Mutex<Connection> {
+        let dir = std::env::temp_dir().join(format!("halo-test-home-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        Mutex::new(crate::db::open(dir).unwrap())
+    }
+
+    /// (album, play_count, last_played_at, added_at, artist)
+    fn add(db: &Mutex<Connection>, rows: &[(&str, i64, Option<i64>, &str, &str)]) {
+        let conn = db.lock().unwrap();
+        for (i, (album, plays, last, added, artist)) in rows.iter().enumerate() {
+            conn.execute(
+                "INSERT INTO tracks (file_path, album_name, play_count, last_played_at, added_at, scanned_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+                params![format!("/m/{album}/{i}.flac"), album, plays, last, added],
+            )
+            .unwrap();
+            let id = conn.last_insert_rowid();
+            conn.execute("INSERT OR IGNORE INTO artists (name) VALUES (?1)", [artist]).unwrap();
+            conn.execute(
+                "INSERT INTO track_artists (track_id, artist_id) SELECT ?1, id FROM artists WHERE name = ?2",
+                params![id, artist],
+            )
+            .unwrap();
+        }
+    }
+
+    fn names(v: &[Album]) -> Vec<&str> {
+        v.iter().map(|a| a.name.as_str()).collect()
+    }
+
+    #[test]
+    fn shelves_rank_albums() {
+        let db = test_db("rank");
+        add(
+            &db,
+            &[
+                ("Alpha", 5, Some(100), "2024-01-01 00:00:00", "A"),
+                ("Alpha", 1, Some(300), "2024-01-01 00:00:00", "A"),
+                ("Beta", 9, Some(200), "2025-06-01 00:00:00", "B"),
+                ("Gamma", 0, None, "2026-01-01 00:00:00", "C"),
+                ("", 50, Some(999), "2026-02-01 00:00:00", "D"),
+            ],
+        );
+        let s = get_home_shelves(10, &db).unwrap();
+        // Alpha's latest play (300) beats Beta's (200); never-played and
+        // untitled albums are left out.
+        assert_eq!(names(&s.recently_played), ["Alpha", "Beta"]);
+        // Beta 9 plays vs Alpha 6 (summed over its tracks).
+        assert_eq!(names(&s.most_played), ["Beta", "Alpha"]);
+        assert_eq!(names(&s.recently_added), ["Gamma", "Beta", "Alpha"]);
+        let alpha = s.recently_played.iter().find(|a| a.name == "Alpha").unwrap();
+        assert_eq!(alpha.track_count, 2);
+        // No album-artist tags: falls back to the track artists.
+        assert_eq!(alpha.album_artists, ["A"]);
+        assert_eq!(s.library_tracks, 5);
+        assert_eq!(get_home_shelves(10, &test_db("empty")).unwrap().library_tracks, 0);
+    }
+
+    #[test]
+    fn shelves_respect_limit() {
+        let db = test_db("limit");
+        let rows: Vec<(String, String)> =
+            (0..30).map(|i| (format!("Album {i:02}"), format!("2025-01-{:02} 00:00:00", i % 28 + 1))).collect();
+        let rows: Vec<_> = rows.iter().map(|(a, d)| (a.as_str(), 1, Some(1), d.as_str(), "X")).collect();
+        add(&db, &rows);
+        let s = get_home_shelves(12, &db).unwrap();
+        assert_eq!(s.recently_added.len(), 12);
+        assert_eq!(s.most_played.len(), 12);
+    }
+
+    #[test]
+    fn rescan_does_not_make_an_album_recently_added() {
+        let db = test_db("rescan");
+        add(
+            &db,
+            &[
+                ("Old", 0, None, "2020-01-01 00:00:00", "A"),
+                ("New", 0, None, "2025-01-01 00:00:00", "B"),
+            ],
+        );
+        // What the scanner does to a changed file: scanned_at moves on,
+        // added_at stays.
+        db.lock()
+            .unwrap()
+            .execute("UPDATE tracks SET scanned_at = '2026-11-25 10:00:00' WHERE album_name = 'Old'", [])
+            .unwrap();
+        let s = get_home_shelves(10, &db).unwrap();
+        assert_eq!(names(&s.recently_added), ["New", "Old"]);
+    }
 }

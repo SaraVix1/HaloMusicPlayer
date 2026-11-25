@@ -20,7 +20,7 @@ pub fn load(app: &mut Halo) -> Task<Message> {
 pub fn view(app: &Halo) -> Element<'_, Message> {
     tracks::page(
         app,
-        "Most Played",
+        Some("Most Played"),
         &app.pages.most,
         Variant::MostPlayed,
         None,

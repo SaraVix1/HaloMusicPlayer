@@ -65,6 +65,19 @@ pub struct LibraryState {
     pub years: Coll<YearStat>,
     /// Last visited Library tab (tab memory).
     pub last_tab: LibraryTab,
+    /// Last unfiltered Songs query (keeps the Songs tab's sort order).
+    pub songs_query: halo_backend::commands::library::TracksQuery,
+}
+
+/// Where a Library tab lives: Songs, Albums and Folders have their own
+/// routes, the rest are `Route::Library(Some(tab))`.
+pub fn tab_route(app: &Halo, tab: LibraryTab) -> Route {
+    match tab {
+        LibraryTab::Songs => Route::Songs(app.pages.library.songs_query.clone()),
+        LibraryTab::Albums => Route::Albums,
+        LibraryTab::Folders => Route::Folders,
+        _ => Route::Library(Some(tab)),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,14 +90,18 @@ pub enum Kind {
     Years,
 }
 
-impl From<LibraryTab> for Kind {
-    fn from(t: LibraryTab) -> Self {
-        match t {
-            LibraryTab::Artists => Kind::Artists,
-            LibraryTab::AlbumArtists => Kind::AlbumArtists,
-            LibraryTab::Composers => Kind::Composers,
-            LibraryTab::Genres => Kind::Genres,
-            LibraryTab::Years => Kind::Years,
+impl Kind {
+    /// The collection a Library tab shows (Songs and Folders have their own
+    /// loaders).
+    pub fn of(tab: LibraryTab) -> Option<Kind> {
+        match tab {
+            LibraryTab::Albums => Some(Kind::Albums),
+            LibraryTab::Artists => Some(Kind::Artists),
+            LibraryTab::AlbumArtists => Some(Kind::AlbumArtists),
+            LibraryTab::Composers => Some(Kind::Composers),
+            LibraryTab::Genres => Some(Kind::Genres),
+            LibraryTab::Years => Some(Kind::Years),
+            LibraryTab::Songs | LibraryTab::Folders => None,
         }
     }
 }
@@ -175,9 +192,13 @@ pub fn standalone<'a>(
     column![header, grid].height(Length::Fill).into()
 }
 
-/// Tabbed Library page.
+/// Tabbed Library page for the collection tabs.
 pub fn view_library(app: &Halo, tab: LibraryTab) -> Element<'_, Message> {
-    let k = t();
+    tabbed(app, tab, tab_grid(app, tab, format!("library:{tab:?}")))
+}
+
+/// Library page: title and tab bar, then `body` (the current tab's content).
+pub fn tabbed<'a>(app: &'a Halo, tab: LibraryTab, body: Element<'a, Message>) -> Element<'a, Message> {
     let mut tabs = row![].spacing(4);
     for tb in LibraryTab::ALL {
         let active = tb == tab;
@@ -201,7 +222,7 @@ pub fn view_library(app: &Halo, tab: LibraryTab) -> Element<'_, Message> {
                     },
                     ..Default::default()
                 })
-                .on_press(Message::ReplaceRoute(Route::Library(Some(tb)))),
+                .on_press(Message::ReplaceRoute(tab_route(app, tb))),
         );
     }
     let header = column![
@@ -214,13 +235,7 @@ pub fn view_library(app: &Halo, tab: LibraryTab) -> Element<'_, Message> {
         .height(38),
     ]
     .padding(Padding::from([24.0, 24.0]).bottom(0.0));
-    let _ = k;
-    column![
-        header,
-        tab_grid(app, tab, format!("library:{tab:?}")),
-    ]
-    .height(Length::Fill)
-    .into()
+    column![header, body].height(Length::Fill).into()
 }
 
 fn tab_grid(app: &Halo, tab: LibraryTab, key: String) -> Element<'_, Message> {
@@ -230,5 +245,8 @@ fn tab_grid(app: &Halo, tab: LibraryTab, key: String) -> Element<'_, Message> {
         LibraryTab::Composers => composers::grid(app, key, None),
         LibraryTab::Genres => genres::grid(app, key, None),
         LibraryTab::Years => years::grid(app, key, None),
+        LibraryTab::Albums => super::albums::grid(app, key, None),
+        // Own routes, drawn through `tabbed` by `pages::view`.
+        LibraryTab::Songs | LibraryTab::Folders => Space::new().into(),
     }
 }
