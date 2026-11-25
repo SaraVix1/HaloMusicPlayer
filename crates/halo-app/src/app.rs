@@ -189,6 +189,7 @@ pub const ACCENT_PREF: &str = "ui.accent_from_art";
 
 impl Halo {
     pub fn new(backend: Backend) -> (Self, Task<Message>) {
+        halo_backend::profile::mark("Halo::new");
         let theme_pref = backend.initial_theme().to_string();
         let player = commands::player::get_player_state(backend.clone()).unwrap_or_else(|_| empty_state());
         let (main_id, open) = window::open(main_window_settings());
@@ -361,6 +362,7 @@ impl Halo {
             }
 
             Message::WindowOpened(id) => {
+                halo_backend::profile::mark("main window opened");
                 if Some(id) != self.main_id {
                     return Task::none();
                 }
@@ -368,6 +370,7 @@ impl Halo {
                 if !self.media_started {
                     self.media_started = true;
                     tray::create();
+                    halo_backend::profile::mark("tray created");
                     return Task::batch([icon, self.start_media_controls(id)]);
                 }
                 icon
@@ -699,6 +702,8 @@ impl Halo {
             return mini::view(self);
         }
         let main_id = id;
+        static FIRST_VIEW: std::sync::Once = std::sync::Once::new();
+        FIRST_VIEW.call_once(|| halo_backend::profile::mark("first view built"));
         if self.fullscreen.open {
             let mut layers = stack![fullscreen::view(self, title_bar::view(self, main_id))]
                 .width(Length::Fill)
