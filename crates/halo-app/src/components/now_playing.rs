@@ -218,7 +218,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                 .size(theme::SMALL)
                 .color(k.muted_fg)
                 .width(Length::Fill)
-                .marquee(),
+                .marquee_on_hover(),
         );
     }
 
@@ -233,7 +233,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                         .size(theme::SMALL)
                         .color(k.muted_fg)
                         .width(Length::Fill)
-                        .marquee(),
+                        .marquee_on_hover(),
                 );
             }
             r.into()
@@ -242,7 +242,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             .size(theme::SMALL)
             .color(k.muted_fg)
             .width(Length::Fill)
-            .marquee()
+            .marquee_on_hover()
             .into(),
         (None, None) => text("—").size(theme::SMALL).color(k.muted_fg).into(),
     };
