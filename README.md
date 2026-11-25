@@ -2,7 +2,7 @@
 
 > **Beta:** Halo is currently in beta. Releases are labelled "(Beta)" — expect rough edges, and please report any bugs you hit.
 
-Halo is a fast, native desktop music player for your local library, written entirely in Rust (UI built with [iced](https://iced.rs)). Point it at your music folders and get a clean, modern player with gapless-feeling playback, a full equalizer, lyrics, smart playlists, and Last.fm scrobbling — all running offline against your own files.
+Halo is a fast, native desktop music player for your local library, written entirely in Rust with a native [iced](https://iced.rs) UI — no webview, no Node.js. Point it at your music folders and get a clean, modern player with gapless-feeling playback, a full equalizer, lyrics, smart playlists, and Last.fm scrobbling — all running offline against your own files.
 
 ## Features
 
@@ -112,3 +112,13 @@ Halo is under active development. See [docs/ACTIVE_WORK.md](docs/ACTIVE_WORK.md)
 ## Contributing / development docs
 
 For architecture details, codebase layout, and contributor guidance, see [CLAUDE.md](CLAUDE.md).
+
+## License
+
+Halo is free software: you can redistribute it and/or modify it under the terms of the **GNU General Public License, version 3 or (at your option) any later version** (`GPL-3.0-or-later`). It is distributed in the hope that it will be useful, but **without any warranty**; see [LICENSE](LICENSE) for the full text.
+
+Bundled third-party code and assets keep their own licenses:
+
+- [souvlaki](vendor/souvlaki) (vendored, patched): MIT — [vendor/souvlaki/LICENSE](vendor/souvlaki/LICENSE)
+- Geist and Geist Mono fonts: SIL Open Font License 1.1 — [crates/halo-app/assets/fonts/LICENSE.txt](crates/halo-app/assets/fonts/LICENSE.txt)
+- Lucide icons: ISC — [crates/halo-app/assets/lucide/LICENSE](crates/halo-app/assets/lucide/LICENSE)

@@ -4,6 +4,7 @@ description = "Halo Music Player — a desktop music player"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+license.workspace = true
 default-run = "halo"
 
 [[bin]]
@@ -97,9 +98,8 @@ installMode = "currentUser"
 [package.metadata.generate-rpm]
 name = "halo"
 summary = "Halo Music Player — a desktop music player"
-# The repository has no licence file, so the RPM says so; change this if one
-# is added (and set `license` in [workspace.package]).
-license = "Proprietary"
+# Keep in sync with `license` in [workspace.package] (root Cargo.toml).
+license = "GPL-3.0-or-later"
 auto-req = "disabled"
 assets = [
     { source = "target/release/halo", dest = "/usr/bin/halo", mode = "755" },
