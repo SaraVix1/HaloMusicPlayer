@@ -86,7 +86,7 @@ pub fn person_card<'a>(
     surface(content)
         .width(Length::Fill)
         .on_press(Message::Navigate(route))
-        .on_right_press_at(crate::components::context_menu::opener(menu))
+        .on_right_press(crate::components::context_menu::opener(menu))
         .interaction(iced::mouse::Interaction::Pointer)
         .style(|s| iced::widget::container::Style {
             background: s.hovered.then(|| a(t().background, 0.1).into()),

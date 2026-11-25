@@ -666,7 +666,10 @@ impl Halo {
             if self.palette.open {
                 layers = layers.push(palette::view(self));
             }
-            return layers.push(resize_handles(main_id)).into();
+            if let Some(menu) = context_menu::view(self) {
+                layers = layers.push(menu);
+            }
+            return layers.push(context_menu::probe()).push(resize_handles(main_id)).into();
         }
         let content: Element<'_, Message> = if self.lyrics.open {
             lyrics::view(self)
@@ -701,6 +704,7 @@ impl Halo {
         if let Some(menu) = context_menu::view(self) {
             layers = layers.push(menu);
         }
+        layers = layers.push(context_menu::probe());
         layers = layers.push(resize_handles(main_id));
         layers.into()
     }

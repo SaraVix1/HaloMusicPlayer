@@ -60,11 +60,18 @@ pub enum Item {
 #[derive(Default)]
 pub struct State {
     pub open: Option<(Point, Target)>,
+    /// Window position of the latest right click (from the top-level
+    /// probe; rows inside scrollables only know scrolled coordinates).
+    last_right: Point,
 }
 
 #[derive(Debug, Clone)]
 pub enum Msg {
-    Open(Point, Target),
+    /// A right click on something with a menu (the position comes from
+    /// `RightAt`).
+    Open(Target),
+    /// Any right click, in window coordinates.
+    RightAt(Point),
     Close,
     Do(Item),
 }
@@ -73,9 +80,15 @@ fn cm(m: Msg) -> Message {
     Message::Context(m)
 }
 
-/// For `surface(..).on_right_press_at(...)`.
-pub fn opener(target: Target) -> impl Fn(Point) -> Message {
-    move |p| cm(Msg::Open(p, target.clone()))
+/// For `surface(..).on_right_press(...)`.
+pub fn opener(target: Target) -> Message {
+    cm(Msg::Open(target))
+}
+
+/// Top layer of the main window that reports right clicks in window
+/// coordinates (see `widgets::probe`).
+pub fn probe<'a>() -> Element<'a, Message> {
+    crate::widgets::right_click_probe(|p| cm(Msg::RightAt(p))).into()
 }
 
 pub fn is_open(app: &Halo) -> bool {
@@ -139,8 +152,17 @@ pub fn place(at: Point, menu: Size, window: Size) -> Point {
 
 pub fn update(app: &mut Halo, m: Msg) -> Task<Message> {
     match m {
-        Msg::Open(p, target) => {
-            app.context.open = Some((p, target));
+        // The probe's message and the row's arrive in either order for the
+        // same click: each uses / updates the other's half.
+        Msg::Open(target) => {
+            app.context.open = Some((app.context.last_right, target));
+            Task::none()
+        }
+        Msg::RightAt(p) => {
+            app.context.last_right = p;
+            if let Some((at, _)) = app.context.open.as_mut() {
+                *at = p;
+            }
             Task::none()
         }
         Msg::Close => {
