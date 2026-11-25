@@ -802,6 +802,56 @@ fn move_queue_position(conn: &Connection, a: i64, b: i64) -> Result<(), String> 
     tx.commit().map_err(|e| e.to_string())
 }
 
+/// Insert `track_ids` to play right after the current track, in order
+/// (shuffle on: next in the shuffle order too). Nothing playing: at the
+/// front. Returns the queue index of the first inserted track.
+pub fn insert_next(app: Backend, track_ids: Vec<i64>) -> Result<i64, String> {
+    let at;
+    {
+        let db = app.state::<Mutex<Connection>>();
+        let conn = db.lock().map_err(|e| e.to_string())?;
+        let len = queue_length(&conn)?;
+        let current = read_int(&conn, KEY_CURRENT_INDEX).filter(|&c| (0..len).contains(&c));
+        at = current.map_or(0, |c| c + 1);
+        let order = (shuffle_enabled(&conn) && len > 0).then(|| load_shuffle(&app, &conn, len, current.unwrap_or(0)));
+        insert_at(&conn, at, &track_ids)?;
+        if let Some(mut order) = order {
+            order.on_insert_next(at, track_ids.len() as i64);
+            commit_shuffle(&app, &conn, &order)?;
+        }
+    }
+    emit_state(&app);
+    Ok(at)
+}
+
+/// Play `track_id` now without losing the queue: it's inserted after the
+/// current track and started (Ctrl+K → Enter on a song).
+pub fn play_now(app: Backend, track_id: i64) -> Result<(), String> {
+    let at = insert_next(app.clone(), vec![track_id])?;
+    play_queue_index(app, at)
+}
+
+/// Insert `track_ids` at queue position `at` (later ones shift up),
+/// positions contiguous, one transaction.
+fn insert_at(conn: &Connection, at: i64, track_ids: &[i64]) -> Result<(), String> {
+    if track_ids.is_empty() {
+        return Ok(());
+    }
+    let n = track_ids.len() as i64;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute("UPDATE queue SET position = position + ?1 WHERE position >= ?2", params![n, at])
+        .map_err(|e| e.to_string())?;
+    {
+        let mut ins = tx
+            .prepare("INSERT INTO queue (track_id, position) VALUES (?1, ?2)")
+            .map_err(|e| e.to_string())?;
+        for (k, tid) in track_ids.iter().enumerate() {
+            ins.execute(params![tid, at + k as i64]).map_err(|e| e.to_string())?;
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())
+}
+
 /// The panel's Clear: drop everything but the playing track, which keeps
 /// playing. Nothing playing: clear the whole queue (and stop).
 pub fn clear_up_next(app: Backend) -> Result<(), String> {
@@ -1192,6 +1242,21 @@ mod tests {
         assert!(contiguous(&conn));
         move_queue_position(&conn, 4, 4).unwrap();
         assert_eq!(order(&conn), [0, 1, 3, 2, 4, 5]);
+    }
+
+    #[test]
+    fn insert_at_shifts_the_rest() {
+        let conn = test_db("insert", 6);
+        replace_queue(&conn, &[0, 1, 2]).unwrap();
+        // After the current entry (position 0).
+        insert_at(&conn, 1, &[4, 5]).unwrap();
+        assert_eq!(order(&conn), [0, 4, 5, 1, 2]);
+        assert!(contiguous(&conn));
+        // At the end, and nothing.
+        insert_at(&conn, 5, &[3]).unwrap();
+        insert_at(&conn, 0, &[]).unwrap();
+        assert_eq!(order(&conn), [0, 4, 5, 1, 2, 3]);
+        assert!(contiguous(&conn));
     }
 
     #[test]
