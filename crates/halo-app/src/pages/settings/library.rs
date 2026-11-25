@@ -258,15 +258,15 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     .spacing(12);
 
     let list: Element<'_, Message> = if st.loading {
-        ui::muted("Loading…", theme::TEXT_SM).into()
+        ui::muted("Loading…", theme::BODY).into()
     } else if st.folders.is_empty() {
-        ui::muted("No folders added yet. Click \"Add folder\" to get started.", theme::TEXT_SM).into()
+        ui::muted("No folders added yet. Click \"Add folder\" to get started.", theme::BODY).into()
     } else {
         let mut col = column![].spacing(4);
         for f in &st.folders {
             let base = container(
                 row![
-                    line(f.path.as_str()).size(theme::TEXT_SM).font(theme::MONO).width(Length::Fill),
+                    line(f.path.as_str()).size(theme::BODY).width(Length::Fill),
                     Space::new().width(15),
                 ]
                 .align_y(Alignment::Center),
@@ -316,10 +316,10 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         let mut card = column![
             row![
                 text(if p.done { "Scan complete" } else { "Scanning…" })
-                    .size(theme::TEXT_SM)
+                    .size(theme::BODY)
                     .font(theme::MEDIUM),
                 ui::fill(),
-                ui::muted(format!("{} / {} ({}%)", p.current, p.total, pct), theme::TEXT_XS),
+                ui::muted(format!("{} / {} ({}%)", p.current, p.total, pct), theme::SMALL),
             ]
             .align_y(Alignment::Center),
             bar,
@@ -328,8 +328,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         if !p.current_file.is_empty() && !p.done {
             card = card.push(
                 line(p.current_file.as_str())
-                    .size(theme::TEXT_XS)
-                    .font(theme::MONO)
+                    .size(theme::SMALL)
                     .color(k.muted_fg)
                     .width(Length::Fill),
             );
@@ -339,7 +338,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                 "Inserted {} · Updated {} · Skipped {} · Failed {}",
                 p.inserted, p.updated, p.skipped, p.failed
             ),
-            theme::TEXT_XS,
+            theme::SMALL,
         ));
         folders_col = folders_col.push(
             container(card)
@@ -356,7 +355,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         if p.done && s.total == 0 {
             folders_col = folders_col.push(ui::muted(
                 "No audio files found in the managed folders.",
-                theme::TEXT_SM,
+                theme::BODY,
             ));
         }
     }
@@ -432,14 +431,13 @@ fn field<'a>(
     f: fn(String) -> Msg,
 ) -> iced::widget::Column<'a, Message> {
     column![
-        text(title).size(theme::TEXT_SM).font(theme::MEDIUM),
+        text(title).size(theme::BODY).font(theme::MEDIUM),
         text_input(placeholder, value)
             .on_input(move |s| lm(f(s)))
-            .size(theme::TEXT_SM)
-            .font(theme::MONO)
+            .size(theme::BODY)
             .padding(Padding::from([6.0, 12.0]))
             .style(theme::input),
-        ui::muted(hint, theme::TEXT_XS),
+        ui::muted(hint, theme::SMALL),
     ]
     .spacing(6)
 }

@@ -69,3 +69,87 @@ fn ensure_aumid_shortcut() -> Result<(), String> {
 
 #[cfg(not(windows))]
 pub fn set_app_user_model_id() {}
+
+/// Resource ID winresource gives the exe icon (`set_icon` in build.rs).
+#[cfg(windows)]
+const EXE_ICON_ID: u16 = 1;
+
+/// Windows: point the window's big (taskbar, Alt+Tab) and small icons at
+/// the exe's multi-size `.ico`, loaded at the exact sizes for the window's
+/// DPI. A single RGBA icon from iced is rescaled by Windows with poor
+/// filtering; this lets it pick the hand-tuned 16/24/32 px entries.
+#[cfg(windows)]
+pub fn set_window_icon_from_exe(hwnd: *mut std::ffi::c_void) {
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SendMessageW, ICON_BIG, ICON_SMALL, SM_CXICON, SM_CXSMICON, WM_SETICON,
+    };
+    let hwnd = HWND(hwnd);
+    // SAFETY: plain Win32 calls on a live window handle owned by this process.
+    unsafe {
+        let dpi = GetDpiForWindow(hwnd).max(96);
+        for (which, metric) in [(ICON_BIG, SM_CXICON), (ICON_SMALL, SM_CXSMICON)] {
+            let size = GetSystemMetricsForDpi(metric, dpi);
+            if let Some(icon) = load_exe_icon(size) {
+                SendMessageW(hwnd, WM_SETICON, WPARAM(which as usize), LPARAM(icon as isize));
+            }
+        }
+    }
+}
+
+/// Windows: tray icon size in physical pixels (the small-icon metric at the
+/// system DPI: 16 at 100 %, 24 at 150 %, 32 at 200 %).
+#[cfg(windows)]
+pub fn small_icon_size() -> u32 {
+    use windows::Win32::UI::HiDpi::{GetDpiForSystem, GetSystemMetricsForDpi};
+    use windows::Win32::UI::WindowsAndMessaging::SM_CXSMICON;
+    // SAFETY: plain Win32 calls with no pointer arguments.
+    let px = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem().max(96)) };
+    if px > 0 { px as u32 } else { 16 }
+}
+
+/// Load the exe icon at `size` px. Windows picks the closest entry in the
+/// `.ico` (and only scales when no entry is that size). The HICON is shared
+/// for the life of the process, so it is never destroyed.
+#[cfg(windows)]
+unsafe fn load_exe_icon(size: i32) -> Option<*mut std::ffi::c_void> {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::HINSTANCE;
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::WindowsAndMessaging::{LoadImageW, IMAGE_ICON, LR_DEFAULTCOLOR};
+    let module = GetModuleHandleW(PCWSTR::null()).ok()?;
+    // MAKEINTRESOURCEW(EXE_ICON_ID)
+    let name = PCWSTR(EXE_ICON_ID as usize as *const u16);
+    let handle =
+        LoadImageW(HINSTANCE(module.0), name, IMAGE_ICON, size, size, LR_DEFAULTCOLOR).ok()?;
+    Some(handle.0)
+}
+
+/// The current hour (0–23) in the user's local time zone, e.g. for the
+/// Home page greeting. `None` if the platform can't tell.
+#[cfg(unix)]
+pub fn local_hour() -> Option<u8> {
+    // SAFETY: `time(NULL)` and `localtime_r` with a valid out-pointer to a
+    // zeroed `tm`; localtime_r is the thread-safe variant.
+    unsafe {
+        let now = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&now, &mut tm).is_null() {
+            return None;
+        }
+        u8::try_from(tm.tm_hour).ok()
+    }
+}
+
+#[cfg(windows)]
+pub fn local_hour() -> Option<u8> {
+    // SAFETY: no arguments; returns the local time by value.
+    let now = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    u8::try_from(now.wHour).ok()
+}
+
+#[cfg(not(any(unix, windows)))]
+pub fn local_hour() -> Option<u8> {
+    None
+}

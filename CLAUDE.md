@@ -31,6 +31,9 @@ cargo packager --release -p halo --formats deb,appimage
 # RPM (cargo-packager has none; cargo install cargo-generate-rpm --locked)
 cargo generate-rpm -p crates/halo-app             # → target/generate-rpm/*.rpm
 
+# Re-export app icons (PNGs, .ico, .icns) from crates/halo-app/assets/icons/src/*.svg
+python3 scripts/build-icons.py
+
 # Set the version by hand (root Cargo.toml [workspace.package] + Cargo.lock)
 python3 scripts/bump-version.py <version>
 ```
@@ -47,12 +50,14 @@ crates/
 ├── halo-core/                  # Pure domain logic — no I/O, no UI, no rodio (queue/shuffle/repeat, play &
 │                               # scrobble thresholds, NowPlayingController trait, RemoteCommand) + tests
 ├── halo-backend/               # Everything except the UI (lib crate)
-│   ├── migrations/*.sql        # 001–010, wired by hand in db/migrations.rs
+│   ├── migrations/*.sql        # 001–011, wired by hand in db/migrations.rs
 │   └── src/
 │       ├── backend.rs          # Backend service container (Arc<Inner>): DB, PlayerHandle, ShuffleState,
 │       │                       # SleepTimer, LastFmState, OpenFilesState, FolderWatcher, media controls,
 │       │                       # AppPaths; typed state::<T>() lookups; BackendEvent channel; 250ms ticker;
 │       │                       # start_media_controls(hwnd); handle_launch_files / handle_forwarded_args
+│       ├── mem.rs              # glibc arena cap + malloc_trim (Linux)
+│       ├── profile.rs          # HALO_PROFILE=1 startup marks / counters (scripts/perf-measure.py)
 │       ├── platform.rs         # Windows AUMID + Start-menu shortcut (SMTC name); call before any window
 │       ├── open_files.rs       # "Open with Halo": argv → playable paths, 300ms-coalesced enqueue
 │       ├── watcher.rs          # notify-based folder watcher, 2s debounce → rescan
@@ -73,7 +78,7 @@ crates/
     ├── linux/halo.desktop.hbs  # deb desktop template (MimeType, StartupWMClass)
     ├── linux/rpm/halo.desktop  # the same, rendered, for the .rpm — keep in sync
     └── src/
-        ├── main.rs             # Linux: prefer X11/XWayland → AUMID → single-instance forward →
+        ├── main.rs             # Linux: prefer X11/XWayland → single-instance claim/forward → AUMID →
         │                       # Backend::start → iced::daemon; open_url (browser keeps Wayland)
         ├── app.rs              # Halo state, Message, update, view per window, subscriptions, window
         │                       # management (hide/show main, open mini, close-to-tray), bg()/fire() helpers
@@ -82,18 +87,36 @@ crates/
         ├── icons.rs            # Lucide icon font glyphs (Icon enum → codepoint)
         ├── ui.rs               # small builders: tooltip, art, stars, toggle, modal, progress, spinners…
         ├── format.rs           # duration / relative time / plural helpers
+        ├── fade.rs             # cover cross-fade + accent glide on song change (tick only while running)
+        ├── renderer.rs         # Settings → Appearance → Renderer (GPU / Software): sets ICED_BACKEND at
+        │                       # the start of main from `ui.renderer` (read_pref_early); next launch
+        ├── thumbs.rs           # cover thumbnails on disk (128 / 384 px) + worker; `ui::art` picks by drawn size
+        ├── shortcuts.rs        # Space / ←→ / Ctrl+←→ / Ctrl+L and which keys reach on_key (not while typing)
         ├── tray.rs             # tray-icon + menu (GTK thread on Linux), events subscription
-        ├── single_instance.rs  # local socket: forward argv/cwd to the running instance
+        ├── single_instance.rs  # per-user local socket, claimed before Backend::start: forward
+        │                       # argv/cwd to the running instance (HAZARDS)
         ├── widgets/            # custom widgets: textline (ellipsis/marquee), surface (hover/click
         │                       # container), popover (anchored overlay), waveform (seek bar)
-        ├── components/         # shell pieces: title_bar, sidebar, now_playing (+ sleep timer),
-        │                       # palette (Ctrl+K), lyrics (panel), mini (mini-player window)
+        ├── components/         # shell pieces: title_bar, sidebar (Home, Library, Playlists, Search,
+        │                       # Queue; Settings), now_playing (+ sleep timer), fullscreen (full-screen
+        │                       # now playing: blurred art, cover, synced lyrics excerpt, transport),
+        │                       # queue_panel (≡ "Up next": slide-in, real play order, drag / remove / clear),
+        │                       # context_menu (right-click on songs / albums / artists, at the cursor),
+        │                       # drop (drag files / folders onto the window: Play now / queue / library),
+        │                       # palette (Ctrl+K: multi-word ranked search, Top result, Enter =
+        │                       # play now keeping the queue via `player::insert_next`, recent searches),
+        │                       # lyrics (panel), mini (mini-player window)
         └── pages/              # ONE FILE PER PAGE / TAB
             ├── mod.rs          # Pages state, page Msg, route dispatch, load-on-enter, refresh hooks
             ├── common.rs       # virtual list/grid, scroll memory, page header helpers
+            ├── home.rs         # start page: greeting + album rows (recently played / most played /
+            │                   # recently added, `get_home_shelves`)
             ├── tracks.rs       # shared track table (Songs / Recently Played / Most Played)
-            ├── songs.rs  recently_played.rs  most_played.rs  albums.rs  folders.rs  queue.rs
-            ├── library/        # mod.rs (tabs page) + cards.rs + artists, album_artists, composers,
+            ├── songs.rs  recently_played.rs  most_played.rs  albums.rs
+            ├── folders.rs      # folder cards + breadcrumb (Route::Folder(path)), a folder's songs as rows
+            ├── library/        # mod.rs (tabs page: Songs | Albums | Artists | Genres | More ▾, Sort ▾;
+            │                   # Songs, Albums, Folders keep their own routes) + sort.rs (per-tab sort,
+            │                   # saved as `library.sort.<tab>` prefs) + cards.rs + artists, album_artists, composers,
             │                   # genres, years (each also backs its standalone route)
             ├── playlists.rs  playlist_detail.rs  smart_playlist.rs
             ├── settings/       # mod.rs (nav + row helpers) + general, appearance, playback,
@@ -118,7 +141,7 @@ Backend threads talk back through `BackendEvent`s (`PlayerState`, `LibraryChange
 
 ### State ticker (backend.rs)
 
-A 250 ms thread drives: sleep-timer tick, `player::handle_audio_events` (track end → advance + stats; near end → crossfade), output-device follow (~1 s, `PlayerHandle::rebuild_output`), `persist_playback_progress` (~1 s), Last.fm now-playing on track change, OS media-control sync, then sends `BackendEvent::PlayerState`. Resume-on-launch and folder watching are opt-in settings (see HAZARDS for their semantics).
+A 250 ms thread drives: sleep-timer tick, `player::handle_audio_events` (track end → advance + stats; near end → crossfade), output-device follow (~1 s, `PlayerHandle::rebuild_output`), `persist_playback_progress` (~1 s), Last.fm now-playing on track change, OS media-control sync, then sends `BackendEvent::PlayerState` — only when it differs from the last one (paused = no redraws). 3 s after a track change it also trims the heap (`mem::trim`, HAZARDS). Resume-on-launch and folder watching are opt-in settings (see HAZARDS for their semantics).
 
 ### Windows (iced daemon)
 
@@ -133,7 +156,9 @@ On Linux Halo runs under X11 (XWayland on a Wayland session) unless `HALO_WAYLAN
 
 ### Look & feel
 
-All colours come from `theme::t()` (active `Tokens`); never hard-code colours in pages — add a token or style fn to `theme.rs`. Icons are Lucide glyphs from the bundled icon font (`icons::icon(Icon::X, size)`), which inherit the button's text colour on hover; filled variants (heart, star, play) use SVGs via `ui::filled`. Text that must truncate uses `widgets::line(..)` (ellipsis) or `.marquee()` / `.looping()`.
+All colours come from `theme::t()` (a copy of the active `Tokens`); never hard-code colours in pages — add a token or style fn to `theme.rs`. `primary` is the **accent**: picked from the current track's art (`accent.rs`, on track change, off the UI thread), lightness-clamped for the background (`theme::readable`), Halo blue `#3d9bde` without art or with Settings → Appearance → "Accent from album art" off. Dark is the default theme.
+
+Three text sizes only: `theme::TITLE` (20, semibold), `BODY` (14), `SMALL` (12); hierarchy by weight (`DISPLAY` 28 is only for the full-screen player's title). While full-screen now playing is open the app renders with the dark tokens (`Halo::apply_theme`). Geist everywhere (Geist Mono only for LRC lyrics text). Radii: `R_MD` 8 for controls, `R_LG` 12 for surfaces (cards, covers, popovers, dialogs), `R_XS`/`R_SM` for tiny things. No divider lines: the title bar, sidebar and now-playing bar share the `sidebar` colour (`theme::frame`) around the page; popovers / dialogs use a shadow, not an outline. Icons are Lucide glyphs from the bundled icon font (`icons::icon(Icon::X, size)`), which inherit the button's text colour on hover; filled variants (heart, star, play) use SVGs via `ui::filled`. Text that must truncate uses `widgets::line(..)` (ellipsis) or `.marquee()` / `.looping()`.
 
 ## Testing the UI headless
 

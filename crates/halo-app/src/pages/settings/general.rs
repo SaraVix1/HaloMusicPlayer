@@ -1,7 +1,7 @@
 //! Settings → General: close-button behaviour and resume-on-launch.
 
 use halo_backend::commands::ui;
-use iced::widget::{column, pick_list};
+use iced::widget::{column, container, pick_list, row, text};
 use iced::{Element, Padding, Task};
 
 use super::{done, msg, section_header, setting_row, Msg as SMsg};
@@ -96,7 +96,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             "Close button",
             "What happens when you click the × in the title bar.",
             pick_list(&CLOSE_OPTS[..], selected, |o| gm(Msg::CloseBehavior(o)))
-                .text_size(theme::TEXT_SM)
+                .text_size(theme::BODY)
                 .padding(Padding::from([4.0, 8.0]))
                 .width(160)
                 .style(theme::pick)
@@ -107,6 +107,25 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             "Continue playback from where you left off when Halo starts.",
             crate::ui::toggle(st.resume_on_launch, gm(Msg::ResumeOnLaunch(!st.resume_on_launch))),
         ),
+        shortcuts(),
     ]
     .into()
+}
+
+/// Keyboard shortcuts reference (`shortcuts::LIST`).
+fn shortcuts<'a>() -> Element<'a, Message> {
+    let mut list = column![].spacing(8);
+    for (keys, action) in crate::shortcuts::LIST {
+        list = list.push(
+            row![
+                container(crate::ui::kbd(keys)).width(140),
+                text(*action).size(theme::BODY),
+            ]
+            .align_y(iced::Alignment::Center),
+        );
+    }
+    column![section_header("Keyboard shortcuts", "Work anywhere except while typing in a text field."), list]
+        .spacing(12)
+        .padding(Padding::ZERO.top(24.0))
+        .into()
 }

@@ -152,6 +152,21 @@ impl ShuffleOrder {
         self.order.insert(at, idx);
     }
 
+    /// `n` tracks were inserted into the queue at index `at` (later indices
+    /// shift up) to play right after the current one, in the given order
+    /// ("Play next" / "play now, keep the queue").
+    pub fn on_insert_next(&mut self, at: i64, n: i64) {
+        for x in self.order.iter_mut() {
+            if *x >= at {
+                *x += n;
+            }
+        }
+        let ins = if self.order.is_empty() { 0 } else { self.pos + 1 };
+        for (k, idx) in (at..at + n).enumerate() {
+            self.order.insert(ins + k, idx);
+        }
+    }
+
     /// The track at queue index `idx` was removed (later indices shift down).
     /// If it was the current track, the cursor lands on the next one in the
     /// order (or the last one, if it was at the end).
@@ -171,6 +186,26 @@ impl ShuffleOrder {
         if self.pos >= self.order.len() {
             self.pos = self.order.len().saturating_sub(1);
         }
+    }
+
+    /// Queue indices that will play after the current one, in order.
+    pub fn upcoming(&self) -> &[i64] {
+        self.order.get(self.pos + 1..).unwrap_or(&[])
+    }
+
+    /// Reorder what's coming up: the entry at `upcoming()[from]` moves to
+    /// `upcoming()[to]` (the "Up next" list's drag-to-reorder). Played
+    /// entries and the current one are untouched. Returns false (and does
+    /// nothing) when either index is out of range.
+    pub fn move_upcoming(&mut self, from: usize, to: usize) -> bool {
+        let base = self.pos + 1;
+        let n = self.upcoming().len();
+        if from >= n || to >= n {
+            return false;
+        }
+        let x = self.order.remove(base + from);
+        self.order.insert(base + to, x);
+        true
     }
 
     /// True if this is a valid order for a queue of `len` tracks: a
@@ -472,5 +507,50 @@ mod tests {
     #[test]
     fn repeat_mode_parse_unknown_defaults_to_off() {
         assert_eq!(RepeatMode::parse("garbage"), RepeatMode::Off);
+    }
+
+    #[test]
+    fn move_upcoming_reorders_only_whats_next() {
+        let mut o = ShuffleOrder { order: vec![4, 2, 0, 3, 1], pos: 1 };
+        assert_eq!(o.upcoming(), &[0, 3, 1]);
+        // Last upcoming → plays next.
+        assert!(o.move_upcoming(2, 0));
+        assert_eq!(o.order, vec![4, 2, 1, 0, 3]);
+        assert_eq!(o.current(), Some(2));
+        // Down again.
+        assert!(o.move_upcoming(0, 2));
+        assert_eq!(o.upcoming(), &[0, 3, 1]);
+        // Out of range: nothing changes.
+        assert!(!o.move_upcoming(3, 0));
+        assert!(!o.move_upcoming(0, 3));
+        assert_eq!(o.order, vec![4, 2, 0, 3, 1]);
+        assert!(o.is_consistent(5));
+        // Next plays what was moved to the top.
+        o.move_upcoming(1, 0);
+        assert_eq!(o.advance(&RepeatMode::Off, &mut fastrand::Rng::with_seed(1)), Some(3));
+    }
+
+    #[test]
+    fn upcoming_is_empty_at_the_end() {
+        let o = ShuffleOrder { order: vec![1, 0], pos: 1 };
+        assert!(o.upcoming().is_empty());
+        assert!(ShuffleOrder::default().upcoming().is_empty());
+    }
+
+    #[test]
+    fn insert_next_plays_right_after_current() {
+        // Queue of 4, shuffle order 2,0,3,1, playing 0 (pos 1).
+        let mut o = ShuffleOrder { order: vec![2, 0, 3, 1], pos: 1 };
+        // Two tracks inserted at queue index 1 (after queue entry 0).
+        o.on_insert_next(1, 2);
+        // Old entries ≥ 1 shift up by 2 (2→4, 3→5, 1→3); 1, 2 go after 0.
+        assert_eq!(o.order, vec![4, 0, 1, 2, 5, 3]);
+        assert!(o.is_consistent(6));
+        assert_eq!(o.current(), Some(0));
+        assert_eq!(o.upcoming()[..2], [1, 2]);
+        // Empty order: the new tracks are the order.
+        let mut e = ShuffleOrder::default();
+        e.on_insert_next(0, 2);
+        assert_eq!(e.order, vec![0, 1]);
     }
 }

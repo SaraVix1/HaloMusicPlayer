@@ -22,10 +22,10 @@ const YEARS: GridSpec = GridSpec {
 fn year_card<'a>(y: &YearStat) -> Element<'a, Message> {
     let year = y.year;
     let content = column![
-        text(year.to_string()).size(theme::TEXT_2XL).font(theme::SEMIBOLD),
+        text(year.to_string()).size(theme::TITLE).font(theme::SEMIBOLD),
         Space::new().height(Length::Fill),
         text(plural(y.track_count, "track", "tracks"))
-            .size(theme::TEXT_XS)
+            .size(theme::SMALL)
             .color(t().muted_fg),
     ]
     .height(Length::Fill);
@@ -57,7 +57,7 @@ fn year_card<'a>(y: &YearStat) -> Element<'a, Message> {
 pub fn grid(app: &Halo, key: String, padding_top: Option<f32>) -> Element<'_, Message> {
     coll_grid(
         &app.pages.library.years,
-        "No year tags found — scan a folder to get started.",
+        crate::pages::common::empty_or_note(app, "No year tags found."),
         YEARS,
         key,
         &app.pages.scroll,

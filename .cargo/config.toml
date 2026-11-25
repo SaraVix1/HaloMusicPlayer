@@ -6,6 +6,10 @@
 # If toolchain changes: rustup component add llvm-tools-preview
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld"
+# Link the C runtime into halo.exe: without it Windows needs the Visual C++
+# Redistributable ("VCRUNTIME140.dll was not found"). Tauri did this for us
+# before the iced port. cc (bundled SQLite) follows it (/MT).
+rustflags = ["-C", "target-feature=+crt-static"]
 
 # ── Compilation cache ──────────────────────────────────────────────────────────
 # sccache caches compiled crates across clean builds and CI runs.

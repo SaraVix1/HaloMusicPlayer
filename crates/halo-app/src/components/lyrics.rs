@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use halo_backend::commands::lyrics::{self, LyricsCandidate, LyricsResult};
+use halo_backend::commands::lyrics::{self, LyricsCandidate, LyricsLine, LyricsResult};
 use iced::widget::{
     button, center, column, container, row, scrollable, text, text_editor, text_input, Space,
 };
@@ -130,6 +130,57 @@ fn fetch_online(app: &mut Halo, id: i64) -> Task<Message> {
     )
 }
 
+/// What the full-screen now-playing view shows beside the cover.
+pub enum Excerpt<'a> {
+    Loading,
+    /// Synced lyrics: `lines[range]` around the `active` line (None: the
+    /// song hasn't reached the first line yet).
+    Synced {
+        lines: &'a [LyricsLine],
+        range: std::ops::Range<usize>,
+        active: Option<usize>,
+    },
+    Plain(&'a [LyricsLine]),
+    None,
+}
+
+/// Lines shown before / after the active synced line.
+pub const EXCERPT_BEFORE: usize = 2;
+pub const EXCERPT_AFTER: usize = 3;
+
+pub fn excerpt(app: &Halo) -> Excerpt<'_> {
+    let st = &app.lyrics;
+    if st.loading || (st.fetching && !has_lyrics(&st.lyrics)) {
+        return Excerpt::Loading;
+    }
+    match st.lyrics.as_ref().filter(|_| has_lyrics(&st.lyrics)) {
+        Some(l) if l.synced => Excerpt::Synced {
+            lines: &l.lines,
+            range: excerpt_range(l.lines.len(), st.active, EXCERPT_BEFORE, EXCERPT_AFTER),
+            active: st.active,
+        },
+        Some(l) => Excerpt::Plain(&l.lines),
+        None => Excerpt::None,
+    }
+}
+
+/// Indices around `active`: `before` lines above, `after` below, clipped to
+/// `0..len`. Before the first line: the first `after + 1` lines.
+pub fn excerpt_range(len: usize, active: Option<usize>, before: usize, after: usize) -> std::ops::Range<usize> {
+    match active {
+        Some(i) => i.saturating_sub(before).min(len)..(i + after + 1).min(len),
+        None => 0..(after + 1).min(len),
+    }
+}
+
+/// Open the panel (the full-screen view's "Find lyrics").
+pub fn open(app: &mut Halo) -> Task<Message> {
+    if app.lyrics.open {
+        return Task::none();
+    }
+    toggle(app)
+}
+
 /// Show / hide the panel; on open, re-centre the active synced line.
 pub fn toggle(app: &mut Halo) -> Task<Message> {
     app.lyrics.open = !app.lyrics.open;
@@ -179,6 +230,11 @@ pub fn on_position(app: &mut Halo) -> Task<Message> {
         SCROLL_ID,
         scrollable::AbsoluteOffset { x: None, y: Some(y) },
     )
+}
+
+/// Seek to a lyric line (also used by the full-screen view).
+pub fn seek(ms: u64) -> Message {
+    lm(Msg::Seek(ms))
 }
 
 pub fn subscription(app: &Halo) -> Option<Subscription<Message>> {
@@ -378,13 +434,13 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     let title = track
         .map(|t| t.title.clone().unwrap_or_else(|| "Unknown track".into()))
         .unwrap_or_else(|| "No track playing".into());
-    let mut left = row![line(title).size(theme::TEXT_SM).font(theme::MEDIUM)]
+    let mut left = row![line(title).size(theme::BODY).font(theme::MEDIUM)]
         .spacing(12)
         .align_y(Alignment::Center);
     if has && !st.searching {
         left = left.push(ui::muted(
             source_label(&st.lyrics.as_ref().unwrap().source).to_string(),
-            theme::TEXT_XS,
+            theme::SMALL,
         ));
     }
     let mut actions = row![].spacing(4).align_y(Alignment::Center);
@@ -434,15 +490,15 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     } else if st.editing {
         column![
             row![
-                ui::muted("Plain text or LRC format (e.g. ", theme::TEXT_XS),
-                text("[00:12.50]Line text").size(theme::TEXT_XS).font(theme::MONO).color(k.muted_fg),
-                ui::muted(")", theme::TEXT_XS),
+                ui::muted("Plain text or LRC format (e.g. ", theme::SMALL),
+                text("[00:12.50]Line text").size(theme::SMALL).font(theme::MONO).color(k.muted_fg),
+                ui::muted(")", theme::SMALL),
             ],
             text_editor(&st.draft)
                 .on_action(|a| lm(Msg::Edit(a)))
                 .placeholder("Paste lyrics here...")
                 .font(theme::MONO)
-                .size(theme::TEXT_SM)
+                .size(theme::BODY)
                 .padding(12)
                 .height(Length::Fill)
                 .style(theme::editor),
@@ -458,16 +514,16 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         if st.fetching {
             col = col
                 .push(spin(Spinner::Loader, 20.0, spin_angle(), k.muted_fg))
-                .push(ui::muted("Searching for lyrics…", theme::TEXT_SM));
+                .push(ui::muted("Searching for lyrics…", theme::BODY));
         } else {
             let nf = st.not_found || st.lyrics.as_ref().is_some_and(|l| l.source == "not_found");
             col = col.push(ui::muted(
                 if nf { "No lyrics found online." } else { "No lyrics found." },
-                theme::TEXT_SM,
+                theme::BODY,
             ));
             if let Some(e) = &st.error {
                 col = col.push(
-                    container(text(e.as_str()).size(theme::TEXT_XS).color(k.destructive))
+                    container(text(e.as_str()).size(theme::SMALL).color(k.destructive))
                         .max_width(320),
                 );
             }
@@ -475,7 +531,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                 col = col.push(
                     column![
                         button(
-                            row![icon(Icon::Search, 14.0), text("Search all providers").size(theme::TEXT_SM)]
+                            row![icon(Icon::Search, 14.0), text("Search all providers").size(theme::BODY)]
                                 .spacing(8)
                                 .align_y(Alignment::Center),
                         )
@@ -488,7 +544,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                             st
                         })
                         .on_press(lm(Msg::EnterSearch)),
-                        button(text("Add lyrics manually").size(theme::TEXT_XS))
+                        button(text("Add lyrics manually").size(theme::SMALL))
                             .padding(0)
                             .style(theme::btn_link)
                             .on_press(lm(Msg::StartEdit)),
@@ -525,7 +581,7 @@ fn lines_view(app: &Halo) -> Element<'_, Message> {
             k.muted_fg
         };
         let txt = text(ln.text.as_str())
-            .size(if active { theme::TEXT_LG * 1.05 } else { theme::TEXT_LG })
+            .size(if active { theme::TITLE * 1.05 } else { theme::TITLE })
             .font(if active { theme::SEMIBOLD } else { theme::SANS })
             .line_height(1.625)
             .color(color)
@@ -559,11 +615,11 @@ fn search_view(app: &Halo) -> Element<'_, Message> {
     for (i, label) in ["Title", "Artist", "Album (optional)"].into_iter().enumerate() {
         form = form.push(
             column![
-                ui::muted(label, theme::TEXT_XS),
+                ui::muted(label, theme::SMALL),
                 text_input("", &st.form[i])
                     .on_input(move |v| lm(Msg::Form(i, v)))
                     .on_submit(lm(Msg::Search))
-                    .size(theme::TEXT_SM)
+                    .size(theme::BODY)
                     .padding(Padding::from([8.0, 12.0]))
                     .style(theme::input_muted),
             ]
@@ -581,7 +637,7 @@ fn search_view(app: &Halo) -> Element<'_, Message> {
             row![
                 lead,
                 text(if st.fetching { "Searching all providers…" } else { "Search all providers" })
-                    .size(theme::TEXT_SM)
+                    .size(theme::BODY)
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -597,16 +653,16 @@ fn search_view(app: &Halo) -> Element<'_, Message> {
 
     let mut col = column![form].spacing(16);
     if let Some(e) = &st.error {
-        col = col.push(text(e.as_str()).size(theme::TEXT_XS).color(k.destructive));
+        col = col.push(text(e.as_str()).size(theme::SMALL).color(k.destructive));
     }
     if st.search_done && st.candidates.is_empty() && st.error.is_none() {
-        col = col.push(ui::muted("No results found — try different values.", theme::TEXT_SM));
+        col = col.push(ui::muted("No results found — try different values.", theme::BODY));
     }
     if !st.candidates.is_empty() {
         let n = st.candidates.len();
         let mut list = column![ui::muted(
             format!("{n} result{} — pick one to use:", if n != 1 { "s" } else { "" }),
-            theme::TEXT_XS,
+            theme::SMALL,
         )]
         .spacing(12);
         for (i, c) in st.candidates.iter().enumerate() {
@@ -614,12 +670,12 @@ fn search_view(app: &Halo) -> Element<'_, Message> {
                 .spacing(8)
                 .align_y(Alignment::Center);
             if c.synced {
-                tags = tags.push(text("Synced").size(theme::TEXT_XS).font(theme::MEDIUM).color(k.primary));
+                tags = tags.push(text("Synced").size(theme::SMALL).font(theme::MEDIUM).color(k.primary));
             }
             if !c.label.is_empty() {
                 tags = tags.push(
                     line(c.label.as_str())
-                        .size(theme::TEXT_XS)
+                        .size(theme::SMALL)
                         .color(a(k.foreground, 0.8))
                         .width(Length::Fill),
                 );
@@ -634,12 +690,12 @@ fn search_view(app: &Halo) -> Element<'_, Message> {
                     column![
                         tags,
                         text(snippet)
-                            .size(theme::TEXT_XS)
+                            .size(theme::SMALL)
                             .font(theme::MONO)
                             .line_height(1.625)
                             .color(k.muted_fg),
                         container(
-                            button(text("Use this").size(theme::TEXT_XS))
+                            button(text("Use this").size(theme::SMALL))
                                 .padding(Padding::from([6.0, 12.0]))
                                 .style(|th, s| {
                                     let mut st = theme::btn_primary(th, s);
@@ -664,4 +720,24 @@ fn search_view(app: &Halo) -> Element<'_, Message> {
         .style(theme::scroll)
         .height(Length::Fill)
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::excerpt_range;
+
+    #[test]
+    fn excerpt_range_around_active_line() {
+        // Before the first line: the first four lines.
+        assert_eq!(excerpt_range(10, None, 2, 3), 0..4);
+        // Start: nothing above line 0.
+        assert_eq!(excerpt_range(10, Some(0), 2, 3), 0..4);
+        // Middle: two above, three below.
+        assert_eq!(excerpt_range(10, Some(5), 2, 3), 3..9);
+        // End: clipped at the last line.
+        assert_eq!(excerpt_range(10, Some(9), 2, 3), 7..10);
+        // Short song.
+        assert_eq!(excerpt_range(2, None, 2, 3), 0..2);
+        assert_eq!(excerpt_range(0, None, 2, 3), 0..0);
+    }
 }

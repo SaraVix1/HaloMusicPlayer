@@ -325,7 +325,7 @@ pub fn view<'a>(app: &'a Halo, ed: &'a Editor) -> Element<'a, Message> {
     let k = t();
     let mut body = column![].spacing(12);
     if let Some(e) = &ed.error {
-        body = body.push(text(e.as_str()).size(theme::TEXT_SM).color(k.destructive));
+        body = body.push(text(e.as_str()).size(theme::BODY).color(k.destructive));
     }
 
     if ed.mode == ArtMode::Crop {
@@ -345,7 +345,7 @@ pub fn view<'a>(app: &'a Halo, ed: &'a Editor) -> Element<'a, Message> {
         }
         _ => {
             body = body.push(
-                container(ui::muted("Loading…", theme::TEXT_SM))
+                container(ui::muted("Loading…", theme::BODY))
                     .width(Length::Fill)
                     .padding(24)
                     .align_x(Alignment::Center),
@@ -358,13 +358,13 @@ pub fn view<'a>(app: &'a Halo, ed: &'a Editor) -> Element<'a, Message> {
     let can_save = !ed.saving && !ed.loading && ed.draft.is_some();
     let footer = row![
         ui::fill(),
-        ui::label_button(None, "Cancel", theme::TEXT_SM, 32.0, 16.0, theme::btn_outline, (!ed.saving).then(close_msg)),
+        ui::label_button(None, "Cancel", theme::BODY, 32.0, 16.0, theme::btn_outline, (!ed.saving).then(close_msg)),
         {
             let mut r = row![].spacing(6).align_y(Alignment::Center);
             if let Some(l) = lead {
                 r = r.push(l);
             }
-            r = r.push(text(if ed.saving { "Saving…" } else { "Save" }).size(theme::TEXT_SM).font(theme::MEDIUM));
+            r = r.push(text(if ed.saving { "Saving…" } else { "Save" }).size(theme::BODY).font(theme::MEDIUM));
             iced::widget::button(container(r).height(32).align_y(Alignment::Center))
                 .padding(iced::Padding::from([0.0, 16.0]))
                 .style(theme::btn_primary)

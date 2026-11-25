@@ -2,17 +2,34 @@
 
 How to replace Halo's app icon and ensure the new icon shows up everywhere on Windows (window, taskbar, executable, installer).
 
-## 1. Generate icon files from a source PNG
+## 1. Edit the SVG sources and export
 
-Start from a source PNG (ideally 1024×1024, transparent background) and export the sizes below with any icon tool (e.g. ImageMagick: `magick src.png -resize 128x128 128x128.png`, `magick src.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico`; on macOS `iconutil` for `icon.icns`). Replace the files in [crates/halo-app/assets/icons/](../../crates/halo-app/assets/icons/) :
+The icon is drawn as SVG in [crates/halo-app/assets/icons/src/](../../crates/halo-app/assets/icons/src/):
 
-| Platform | Files |
+| Source | Used for |
 |---|---|
-| Windows | `icon.ico`, `Square*Logo.png` (Store) |
-| macOS   | `icon.icns` |
-| Linux   | `32x32.png`, `128x128.png`, `128x128@2x.png`, `icon.png` |
+| `halo.svg` | master: 48 px and up (also the Linux `scalable` icon) |
+| `halo-32.svg` | 32 and 40 px, drawn on the 32 px grid |
+| `halo-24.svg` | 20 and 24 px, drawn on the 24 px grid |
+| `halo-16.svg` | 16 px, drawn on the 16 px grid (blue notes only) |
 
-The set used by the installers is listed under `icons` in `[package.metadata.packager]` of [crates/halo-app/Cargo.toml](../../crates/halo-app/Cargo.toml). The window / tray icons are embedded from `128x128.png` and `32x32.png` at compile time.
+The small sizes are separate drawings, not shrunk copies of the master: stems and note heads sit on whole pixels so they stay sharp. When you change the master, redraw them to match.
+
+Then export everything:
+
+```bash
+python3 scripts/build-icons.py
+```
+
+It needs librsvg's Python bindings, pycairo and Pillow (Debian/Ubuntu: `python3-gi gir1.2-rsvg-2.0 python3-cairo python3-pil`) and writes into [crates/halo-app/assets/icons/](../../crates/halo-app/assets/icons/):
+
+| Platform | Files | Used by |
+|---|---|---|
+| Windows | `icon.ico` (16, 20, 24, 32, 40, 48, 64, 256) | exe resource (build.rs), installers, taskbar / Alt+Tab (`platform::set_window_icon_from_exe`), tray (`Icon::from_resource`) |
+| macOS   | `icon.icns` | `.app` / `.dmg` |
+| Linux   | `16x16.png` … `512x512.png` | hicolor icons in the `.deb` / `.rpm` / AppImage; `128x128.png` window icon; `64x64.png` tray icon |
+
+Commit the generated files: the build doesn't run the script. Installer icons are listed under `icons` in `[package.metadata.packager]` of [crates/halo-app/Cargo.toml](../../crates/halo-app/Cargo.toml); the `.rpm` lists the same files under `[package.metadata.generate-rpm]` `assets`.
 
 ## 2. Force the binary to re-embed the icon
 

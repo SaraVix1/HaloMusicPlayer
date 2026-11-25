@@ -2054,6 +2054,7 @@ dependencies = [
  "iced",
  "image",
  "interprocess",
+ "libc",
  "open",
  "raw-window-handle",
  "rfd",
@@ -2062,6 +2063,7 @@ dependencies = [
  "tokio",
  "tray-icon",
  "ureq",
+ "windows 0.58.0",
  "winresource",
  "x11-dl",
 ]
@@ -2076,6 +2078,7 @@ dependencies = [
  "halo-core",
  "hex",
  "image",
+ "libc",
  "lofty",
  "md5",
  "notify",

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!--
+    Halo app icon, master (used for 48 px and up). Two-tone notes:
+    blue beamed pair in front, pink eighth note behind it.
+    Small sizes are drawn separately on their pixel grid: halo-16/24/32.svg.
+    Export: python3 scripts/build-icons.py
+  -->
+  <defs>
+    <!-- Flat two-tone: lighter left of the right head, darker from its left edge (x=274). -->
+    <linearGradient id="blue" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="512" y2="0">
+      <stop offset="0.53516" stop-color="#3bb3ef"/>
+      <stop offset="0.53516" stop-color="#3d9bde"/>
+    </linearGradient>
+    <linearGradient id="pink" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="512" y2="0">
+      <stop offset="0.21875" stop-color="#f86697"/>
+      <stop offset="0.21875" stop-color="#f43e6a"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(24 -6)">
+    <!-- Pink eighth note: head r50, stem 30 wide, flag clear of the beam. -->
+    <g fill="url(#pink)">
+      <circle cx="112" cy="236" r="50"/>
+      <rect x="132" y="64" width="30" height="172" rx="15"/>
+    </g>
+    <path d="M147 82 C147 120 200 114 200 150" fill="none" stroke="url(#pink)" stroke-width="28" stroke-linecap="round"/>
+    <!-- Blue beamed pair: heads r64, stems 36, beam 60 (corners rounded r10). -->
+    <g fill="url(#blue)">
+      <circle cx="150" cy="396" r="64"/>
+      <circle cx="338" cy="352" r="64"/>
+      <polygon points="188,193.2 392,125.8 392,352 376,352 376,170.1 204,226.9 204,396 188,396" stroke="url(#blue)" stroke-width="20" stroke-linejoin="round"/>
+    </g>
+  </g>
+</svg>

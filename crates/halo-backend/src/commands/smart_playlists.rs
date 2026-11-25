@@ -163,19 +163,19 @@ fn rule_to_sql(rule: &SmartPlaylistRule) -> Option<(String, Vec<rusqlite::types:
             Some((format!("{col} {op_sql} ?"), ps))
         }
 
-        // ── Date added (stored as ISO TEXT in scanned_at) ─────────────────
+        // ── Date added (ISO TEXT in added_at, see migration 011) ──────────
         "date_added" => match rule.operator.as_str() {
             "in_last_days" => {
                 let n: i64 = v.parse().ok()?;
-                Some((format!("t.scanned_at >= datetime('now', '-{n} days')"), ps))
+                Some((format!("t.added_at >= datetime('now', '-{n} days')"), ps))
             }
             "gt" => {
                 ps.push(rusqlite::types::Value::Text(v.clone()));
-                Some(("t.scanned_at > ?".into(), ps))
+                Some(("t.added_at > ?".into(), ps))
             }
             "lt" => {
                 ps.push(rusqlite::types::Value::Text(v.clone()));
-                Some(("t.scanned_at < ?".into(), ps))
+                Some(("t.added_at < ?".into(), ps))
             }
             _ => None,
         },
@@ -228,7 +228,7 @@ fn sort_col(field: &str) -> Option<&'static str> {
         "play_count" => Some("t.play_count"),
         "skip_count" => Some("t.skip_count"),
         "duration_ms" => Some("t.duration_ms"),
-        "date_added" => Some("t.scanned_at"),
+        "date_added" => Some("t.added_at"),
         "last_played_at" => Some("t.last_played_at"),
         _ => None,
     }

@@ -4,6 +4,9 @@
 //! * [`Overflow::Marquee`] — now-playing bar: when the text overflows by more
 //!   than 4px it slides to reveal the end and back (`marquee 7s ease-in-out
 //!   1.5s infinite alternate`, holding at each end for 20% of the cycle).
+//! * [`Overflow::HoverMarquee`] — like `Marquee`, but only while the pointer
+//!   is over the text; at rest it's truncated with "…" and requests no
+//!   redraws (no idle CPU).
 //! * [`Overflow::Loop`] — mini player: the text is repeated with a 48px gap and
 //!   scrolls continuously at 35 px/s (at least 8s per loop).
 //! * [`Overflow::Clip`] — plain clipping.
@@ -29,6 +32,7 @@ type Paragraph = <iced::Renderer as text::Renderer>::Paragraph;
 pub enum Overflow {
     Ellipsis,
     Marquee,
+    HoverMarquee,
     Loop,
     Clip,
 }
@@ -48,7 +52,7 @@ pub struct TextLine<'a> {
 pub fn line<'a>(content: impl Into<std::borrow::Cow<'a, str>>) -> TextLine<'a> {
     TextLine {
         content: content.into(),
-        size: theme::TEXT_SM,
+        size: theme::BODY,
         font: theme::SANS,
         color: None,
         line_height: 1.43,
@@ -97,6 +101,10 @@ impl<'a> TextLine<'a> {
     pub fn marquee(self) -> Self {
         self.overflow(Overflow::Marquee)
     }
+    /// Scroll overflowing text only while hovered; "…" otherwise.
+    pub fn marquee_on_hover(self) -> Self {
+        self.overflow(Overflow::HoverMarquee)
+    }
     pub fn looping(self) -> Self {
         self.overflow(Overflow::Loop)
     }
@@ -133,6 +141,8 @@ struct State {
     width: f32,
     start: Option<Instant>,
     offset: f32,
+    /// Pointer over the text (`HoverMarquee`).
+    hovered: bool,
 }
 
 fn ease_in_out(x: f32) -> f32 {
@@ -201,7 +211,7 @@ impl<'a, Message> Widget<Message, iced::Theme, iced::Renderer> for TextLine<'a> 
             .resolve(self.width, Length::Fixed(h), natural);
         state.width = size.width;
 
-        if self.overflow == Overflow::Ellipsis
+        if matches!(self.overflow, Overflow::Ellipsis | Overflow::HoverMarquee)
             && state.full_width > size.width + 0.5
             && (state.truncated_for - size.width).abs() > 0.5
         {
@@ -238,23 +248,37 @@ impl<'a, Message> Widget<Message, iced::Theme, iced::Renderer> for TextLine<'a> 
         &mut self,
         tree: &mut Tree,
         event: &Event,
-        _layout: Layout<'_>,
-        _cursor: mouse::Cursor,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
         _renderer: &iced::Renderer,
         _clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         _viewport: &Rectangle,
     ) {
-        if !matches!(self.overflow, Overflow::Marquee | Overflow::Loop) {
+        if !matches!(self.overflow, Overflow::Marquee | Overflow::HoverMarquee | Overflow::Loop) {
             return;
+        }
+        let state = tree.state.downcast_mut::<State>();
+        if self.overflow == Overflow::HoverMarquee {
+            if let Event::Mouse(_) = event {
+                let over = cursor.is_over(layout.bounds());
+                if over != state.hovered {
+                    state.hovered = over;
+                    state.start = None;
+                    state.offset = 0.0;
+                    shell.request_redraw();
+                }
+            }
+            if !state.hovered {
+                return;
+            }
         }
         let Event::Window(window::Event::RedrawRequested(now)) = event else {
             return;
         };
-        let state = tree.state.downcast_mut::<State>();
         let overflow = state.full_width - state.width;
         let animate = match self.overflow {
-            Overflow::Marquee => overflow > 4.0,
+            Overflow::Marquee | Overflow::HoverMarquee => overflow > 4.0,
             _ => overflow > 0.5,
         };
         if !animate {
@@ -265,13 +289,14 @@ impl<'a, Message> Widget<Message, iced::Theme, iced::Renderer> for TextLine<'a> 
         let start = *state.start.get_or_insert(*now);
         let t = now.saturating_duration_since(start).as_secs_f32();
         state.offset = match self.overflow {
-            Overflow::Marquee => {
-                const DELAY: f32 = 1.5;
+            Overflow::Marquee | Overflow::HoverMarquee => {
+                // Hover: start almost at once.
+                let delay: f32 = if self.overflow == Overflow::HoverMarquee { 0.4 } else { 1.5 };
                 const CYCLE: f32 = 7.0;
-                if t < DELAY {
+                if t < delay {
                     0.0
                 } else {
-                    let tt = (t - DELAY) / CYCLE;
+                    let tt = (t - delay) / CYCLE;
                     let n = tt.floor() as i64;
                     let mut p = tt - tt.floor();
                     if n % 2 == 1 {
@@ -314,7 +339,11 @@ impl<'a, Message> Widget<Message, iced::Theme, iced::Renderer> for TextLine<'a> 
         };
 
         match self.overflow {
-            Overflow::Ellipsis if state.truncated.is_some() => {
+            Overflow::HoverMarquee if state.hovered && state.full_width > bounds.width + 0.5 => {
+                let p = Point::new(bounds.x - state.offset, bounds.y);
+                renderer.fill_paragraph(state.full.raw(), p, color, clip);
+            }
+            Overflow::Ellipsis | Overflow::HoverMarquee if state.truncated.is_some() => {
                 renderer.fill_paragraph(
                     state.truncated.as_ref().unwrap(),
                     bounds.position(),

@@ -1,6 +1,10 @@
+pub mod context_menu;
+pub mod drop;
+pub mod fullscreen;
 pub mod lyrics;
 pub mod mini;
 pub mod now_playing;
 pub mod palette;
+pub mod queue_panel;
 pub mod sidebar;
 pub mod title_bar;

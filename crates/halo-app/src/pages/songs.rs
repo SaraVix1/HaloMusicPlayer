@@ -1,16 +1,14 @@
-//! All Songs (`all-songs.tsx`): filter chips from the URL-style query, sortable
-//! columns, Play All / Shuffle Play.
+//! Song lists: the Library Songs tab, and filtered lists (an album, artist,
+//! genre …) shown inside their Library tab with a breadcrumb.
 
 use halo_backend::commands::library::{self, TracksQuery};
-use iced::widget::{button, row, text};
-use iced::{Alignment, Element, Padding, Task};
+use iced::widget::{column, row};
+use iced::{Alignment, Element, Task};
 
-use super::tracks::{self, SortKey, Variant};
+use super::tracks::{self, Variant};
 use super::Msg;
 use crate::app::{bg, Halo, Message};
-use crate::icons::{icon, Icon};
-use crate::route::Route;
-use crate::theme::{self, t};
+use crate::theme;
 
 pub fn query_for(q: &TracksQuery) -> TracksQuery {
     let mut q = q.clone();
@@ -30,135 +28,42 @@ pub fn load(app: &mut Halo, q: TracksQuery) -> Task<Message> {
     )
 }
 
-/// Toggle direction when clicking the active column, otherwise sort by the
-/// new column ascending (`setParams(..., { replace: true })`).
-pub fn sorted(q: &TracksQuery, key: SortKey) -> TracksQuery {
-    let mut next = q.clone();
-    let cur = q.sort.as_deref().unwrap_or("title");
-    let dir = q.direction.as_deref().unwrap_or("asc");
-    if cur == key.as_str() {
-        next.direction = Some(if dir == "asc" { "desc" } else { "asc" }.into());
-    } else {
-        next.sort = Some(key.as_str().into());
-        next.direction = Some("asc".into());
+/// The Songs tab (no filter), or a filtered list inside its Library tab:
+/// `Genres › Beat`, `Artists › …`; an album gets a header with its cover
+/// and album-style rows.
+pub fn view<'a>(app: &'a Halo, q: &'a TracksQuery) -> Element<'a, Message> {
+    let list = &app.pages.songs;
+    if crate::route::is_all_songs(q) {
+        return tracks::page(app, None, list, Variant::Songs, super::common::empty_or_note(app, "No songs."), false);
     }
-    next
+    let tab = crate::route::filter_tab(q);
+    let label = crate::route::filter_label(q).unwrap_or_default();
+    if q.album.is_some() {
+        let head = album_header(app, tab, label);
+        return tracks::page(app, Some(head), list, Variant::Album, super::common::note("No songs on this album."), false);
+    }
+    let head = super::library::crumbs(app, tab, label);
+    tracks::page(app, Some(head), list, Variant::Songs, super::common::note("No songs match."), false)
 }
 
-pub fn sort_state(q: &TracksQuery) -> (SortKey, bool) {
-    let key = match q.sort.as_deref().unwrap_or("title") {
-        "artist" => SortKey::Artist,
-        "album" => SortKey::Album,
-        "genre" => SortKey::Genre,
-        "duration" => SortKey::Duration,
-        "rating" => SortKey::Rating,
-        // track_number / scanned_at / play_count have no header arrow.
-        "title" => SortKey::Title,
-        _ => return (SortKey::Title, q.direction.as_deref() != Some("desc")),
-    };
-    (key, q.direction.as_deref() != Some("desc"))
-}
-
-pub fn has_arrow(q: &TracksQuery) -> bool {
-    matches!(
-        q.sort.as_deref().unwrap_or("title"),
-        "title" | "artist" | "album" | "genre" | "duration" | "rating"
-    )
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Filter {
-    Album,
-    Artist,
-    AlbumArtist,
-    Composer,
-    Genre,
-    Year,
-}
-
-pub fn without(q: &TracksQuery, f: Filter) -> TracksQuery {
-    let mut n = q.clone();
-    match f {
-        Filter::Album => n.album = None,
-        Filter::Artist => n.artist = None,
-        Filter::AlbumArtist => n.album_artist = None,
-        Filter::Composer => n.composer = None,
-        Filter::Genre => n.genre = None,
-        Filter::Year => n.year = None,
+/// Album page header: cover, `Albums › Roja`, "1992 · 12 songs · 54 m".
+fn album_header<'a>(app: &'a Halo, tab: crate::route::LibraryTab, label: String) -> Element<'a, Message> {
+    let tracks = &app.pages.songs.tracks;
+    let cover = tracks.iter().find_map(|t| t.album_art_path.as_deref().filter(|p| !p.is_empty()));
+    let mut meta = vec![];
+    if let Some(y) = tracks.iter().find_map(|t| t.year) {
+        meta.push(y.to_string());
     }
-    n
-}
-
-pub fn chips<'a>(q: &TracksQuery) -> Option<Element<'a, Message>> {
-    let mut out: Vec<(Filter, String)> = vec![];
-    if let Some(v) = &q.album {
-        out.push((Filter::Album, format!("Album: {v}")));
+    meta.push(crate::format::plural(tracks.len() as i64, "song", "songs"));
+    let total: i64 = tracks.iter().filter_map(|t| t.duration_ms).sum();
+    if total > 0 {
+        meta.push(super::folders::long_duration(total));
     }
-    if let Some(v) = &q.artist {
-        out.push((Filter::Artist, format!("Artist: {v}")));
-    }
-    if let Some(v) = &q.album_artist {
-        out.push((Filter::AlbumArtist, format!("Album Artist: {v}")));
-    }
-    if let Some(v) = &q.composer {
-        out.push((Filter::Composer, format!("Composer: {v}")));
-    }
-    if let Some(v) = &q.genre {
-        out.push((Filter::Genre, format!("Genre: {v}")));
-    }
-    if let Some(v) = &q.year {
-        out.push((Filter::Year, format!("Year: {v}")));
-    }
-    if out.is_empty() {
-        return None;
-    }
-    let mut r = row![].spacing(8);
-    for (f, label) in out {
-        let target = without(q, f);
-        r = r.push(
-            button(
-                row![text(label).size(theme::TEXT_XS).font(theme::MEDIUM), icon(Icon::X, 12.0)]
-                    .spacing(4)
-                    .align_y(Alignment::Center),
-            )
-            .padding(Padding::from([4.0, 10.0]))
-            .style(|_, st| {
-                let k = t();
-                iced::widget::button::Style {
-                    background: Some(
-                        match st {
-                            iced::widget::button::Status::Hovered => theme::a(k.muted, 0.7),
-                            _ => k.muted,
-                        }
-                        .into(),
-                    ),
-                    text_color: k.foreground,
-                    border: theme::no_border(theme::R_FULL),
-                    ..Default::default()
-                }
-            })
-            .on_press(Message::ReplaceRoute(Route::Songs(target))),
-        );
-    }
-    Some(r.wrap().into())
-}
-
-fn empty_library<'a>() -> Element<'a, Message> {
-    let k = t();
     row![
-        text("No tracks found. ").size(theme::TEXT_SM).color(k.muted_fg),
-        button(text("Add a folder and scan").size(theme::TEXT_SM))
-            .padding(0)
-            .style(theme::btn_link)
-            .on_press(Message::Navigate(Route::Settings(Some(
-                crate::route::SettingsTab::Library
-            )))),
-        text(" to get started.").size(theme::TEXT_SM).color(k.muted_fg),
+        crate::ui::art(cover, 96.0, theme::R_LG),
+        column![super::library::crumbs(app, tab, label), crate::ui::muted(meta.join(" · "), theme::BODY)].spacing(8),
     ]
+    .spacing(16)
+    .align_y(Alignment::Center)
     .into()
 }
-
-pub fn view<'a>(app: &'a Halo, q: &'a TracksQuery) -> Element<'a, Message> {
-    tracks::page(app, "All Songs", &app.pages.songs, Variant::Songs, Some(q), empty_library())
-}
-

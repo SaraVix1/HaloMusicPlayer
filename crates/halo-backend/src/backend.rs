@@ -149,6 +149,7 @@ impl Backend {
             .map_err(|e| format!("failed to create app data dir: {e}"))?;
         let conn = crate::db::open(paths.data_dir.clone())
             .map_err(|e| format!("failed to open database: {e}"))?;
+        crate::profile::mark("db open + migrations");
 
         let saved_volume: Option<f32> = read_app_state(&conn, "player.volume")
             .and_then(|s| s.parse::<f32>().ok());
@@ -159,14 +160,18 @@ impl Backend {
         // first track's EqSource already has the correct coefficients.
         let eq_state = Arc::new(audio::eq::EqState::new());
         commands::eq::restore_eq_state(&conn, &eq_state);
+        crate::profile::mark("eq restored");
         // If the current output device has a saved profile, apply it on top.
         if let Some(dev) = commands::eq::get_current_device_name() {
             commands::eq::load_device_eq_if_exists(&conn, &dev, &eq_state);
         }
+        crate::profile::mark("output device name (per-device EQ)");
         let lastfm = LastFmState::load(&conn);
+        crate::profile::mark("last.fm state loaded");
 
         let player = PlayerHandle::new(saved_volume, Arc::clone(&eq_state))
             .map_err(|e| format!("failed to init audio: {e}"))?;
+        crate::profile::mark("audio player created");
 
         let (tx, rx) = unbounded_channel();
         let backend = Backend(Arc::new(Inner {
@@ -187,8 +192,10 @@ impl Backend {
         // Folder watcher — start watching managed folders if the preference is on.
         let _ = backend.0.watcher.set(watcher::init(&backend));
         watcher::reconfigure(&backend);
+        crate::profile::mark("folder watcher");
 
         backend.spawn_ticker();
+        crate::profile::mark("backend started");
         Ok(backend)
     }
 
@@ -316,6 +323,10 @@ impl Backend {
                 let mut last_status: Option<audio::PlaybackStatus> = None;
                 let mut last_device: String = String::new();
                 let mut tick_count: u64 = 0;
+                let mut last_snapshot = String::new();
+                // Tick at which to hand freed heap back (3 s after the last
+                // track change, see `mem::trim`).
+                let mut trim_at: Option<u64> = None;
                 loop {
                     std::thread::sleep(Duration::from_millis(250));
                     commands::sleep_timer::tick(&app);
@@ -362,6 +373,11 @@ impl Backend {
                         if let Some(ref ct) = state.current_track {
                             commands::lastfm::on_track_start(&app, ct.track_id);
                         }
+                        trim_at = Some(tick_count + 12);
+                    }
+                    if trim_at.is_some_and(|t| tick_count >= t) {
+                        trim_at = None;
+                        crate::mem::trim();
                     }
                     app.sync_media_controls(
                         &state,
@@ -369,7 +385,16 @@ impl Backend {
                         &mut last_status,
                         tick_count,
                     );
-                    app.emit(BackendEvent::PlayerState(Box::new(state)));
+                    // Only when something changed: an unchanged state (paused,
+                    // stopped, idle) used to redraw the whole UI 4×/s.
+                    let snapshot = serde_json::to_string(&state).unwrap_or_default();
+                    if snapshot != last_snapshot {
+                        if crate::profile::enabled() {
+                            crate::profile::changed_keys(&last_snapshot, &snapshot);
+                        }
+                        last_snapshot = snapshot;
+                        app.emit(BackendEvent::PlayerState(Box::new(state)));
+                    }
                     tick_count = tick_count.wrapping_add(1);
                 }
             })

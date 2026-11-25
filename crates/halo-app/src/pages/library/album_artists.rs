@@ -13,7 +13,7 @@ use crate::route::Route;
 pub fn grid(app: &Halo, key: String, padding_top: Option<f32>) -> Element<'_, Message> {
     coll_grid(
         &app.pages.library.album_artists,
-        "No album artists yet — scan a folder to get started.",
+        crate::pages::common::empty_or_note(app, "No album artists yet."),
         PEOPLE,
         key,
         &app.pages.scroll,
@@ -31,6 +31,7 @@ pub fn grid(app: &Halo, key: String, padding_top: Option<f32>) -> Element<'_, Me
                 ..TracksQuery::default()
             }),
             w.min(160.0),
+            crate::components::context_menu::Target::Artist { name: x.name.clone(), album_artist: true },
         ),
     )
 }

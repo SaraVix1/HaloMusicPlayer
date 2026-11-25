@@ -347,8 +347,9 @@ fn upsert_track(
             "INSERT INTO tracks (
                 file_path, title, album_name, track_number, disc_number,
                 duration_ms, year, bitrate, sample_rate, file_format,
-                file_size, album_art_path, folder_id, modified_at, lyrics
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, datetime(?14, 'unixepoch'), ?15)",
+                file_size, album_art_path, folder_id, modified_at, lyrics, added_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, datetime(?14, 'unixepoch'), ?15,
+                      CURRENT_TIMESTAMP)",
             params![
                 path,
                 meta.title,

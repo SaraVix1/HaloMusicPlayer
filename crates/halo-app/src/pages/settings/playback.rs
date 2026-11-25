@@ -56,7 +56,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             .style(theme::slider_style),
         container(
             text(format!("{:.1}s", ms as f64 / 1000.0))
-                .size(theme::TEXT_SM)
+                .size(theme::BODY)
                 .color(t().muted_fg)
         )
         .width(40)

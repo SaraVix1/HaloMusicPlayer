@@ -1,8 +1,8 @@
-//! Icon-only navigation rail (`sidebar.tsx`): Search, All Songs, Albums,
-//! Library, Folders, Playlists, Queue; Settings pinned to the bottom.
+//! Icon-only navigation rail: Home, Library, Playlists, Search (opens the
+//! Ctrl+K palette); Settings pinned to the bottom. Labels show as tooltips.
+//! The queue is the slide-in panel (≡ in the now-playing bar).
 
-use halo_backend::commands::library::TracksQuery;
-use iced::widget::{button, column, container, row, tooltip::Position};
+use iced::widget::{button, column, container, tooltip::Position};
 use iced::{Alignment, Element, Length, Padding};
 
 use crate::app::{Halo, Message};
@@ -10,10 +10,10 @@ use crate::components::palette;
 use crate::icons::Icon;
 use crate::route::{Route, Section};
 use crate::theme;
-use crate::ui::{icon_box, tip, vline};
+use crate::ui::{icon_box, tip};
 
 fn nav_button<'a>(i: Icon, label: &'static str, active: bool, msg: Message) -> Element<'a, Message> {
-    let b = button(icon_box(i, 20.0, 40.0, 40.0))
+    let b = button(icon_box(i, 20.0, 44.0, 44.0))
         .padding(0)
         .style(theme::btn_nav(active))
         .on_press(msg);
@@ -23,25 +23,15 @@ fn nav_button<'a>(i: Icon, label: &'static str, active: bool, msg: Message) -> E
 pub fn view(app: &Halo) -> Element<'_, Message> {
     let section = app.route().section();
     type Item = (Icon, &'static str, Option<(Section, Route)>);
-    let items: [Item; 7] = [
-        (Icon::Search, "Search (Ctrl+K)", None),
-        (
-            Icon::Music,
-            "All Songs",
-            Some((Section::Songs, Route::Songs(TracksQuery::default()))),
-        ),
-        (Icon::Disc, "Albums", Some((Section::Albums, Route::Albums))),
+    let items: [Item; 4] = [
+        (Icon::House, "Home", Some((Section::Home, Route::Home))),
+        // Library(None) opens the last visited tab.
         (Icon::Library, "Library", Some((Section::Library, Route::Library(None)))),
-        (Icon::Folder, "Folders", Some((Section::Folders, Route::Folders))),
-        (
-            Icon::ListMusic,
-            "Playlists",
-            Some((Section::Playlists, Route::Playlists)),
-        ),
-        (Icon::ListOrdered, "Queue", Some((Section::Queue, Route::Queue))),
+        (Icon::ListMusic, "Playlists", Some((Section::Playlists, Route::Playlists))),
+        (Icon::Search, "Search (Ctrl+K)", None),
     ];
 
-    let mut top = column![].spacing(4).align_x(Alignment::Center);
+    let mut top = column![].spacing(6).align_x(Alignment::Center);
     for (i, label, target) in items {
         let (active, msg) = match target {
             Some((s, r)) => (section == s, Message::Navigate(r)),
@@ -62,14 +52,9 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         settings,
     ]
     .align_x(Alignment::Center)
-    .width(55)
+    .width(64)
     .height(Length::Fill)
     .padding(Padding::from([8.0, 0.0]));
 
-    row![
-        container(rail).style(theme::sidebar).height(Length::Fill),
-        container(vline::<Message>()).style(theme::sidebar_divider),
-    ]
-    .height(Length::Fill)
-    .into()
+    container(rail).style(theme::sidebar).height(Length::Fill).into()
 }

@@ -185,11 +185,11 @@ pub fn scroll_page<'a>(key: String, content: impl Into<Element<'a, Message>>) ->
 
 /// `text-sm text-muted-foreground` paragraph (loading / empty states).
 pub fn note<'a>(s: impl text::IntoFragment<'a>) -> Element<'a, Message> {
-    ui::muted(s, theme::TEXT_SM).into()
+    ui::muted(s, theme::BODY).into()
 }
 
 pub fn error_text<'a>(e: &'a str) -> Element<'a, Message> {
-    text(e).size(theme::TEXT_SM).color(t().destructive).into()
+    text(e).size(theme::BODY).color(t().destructive).into()
 }
 
 /// Page header row: h1 on the left, `right` content on the right
@@ -203,7 +203,7 @@ pub fn header<'a>(title: &'a str, right: impl Into<Element<'a, Message>>) -> Ele
 
 /// "N item(s)" count label (`text-sm text-muted-foreground tabular-nums`).
 pub fn count<'a>(n: usize, one: &str, many: &str) -> Element<'a, Message> {
-    ui::muted(crate::format::plural(n as i64, one, many), theme::TEXT_SM).into()
+    ui::muted(crate::format::plural(n as i64, one, many), theme::BODY).into()
 }
 
 /// A vertical stack with standard page padding (`p-6`).
@@ -218,6 +218,60 @@ pub fn padded<'a>(content: Column<'a, Message>) -> Element<'a, Message> {
 #[allow(dead_code)]
 pub fn spacer<'a>(h: f32) -> Element<'a, Message> {
     column![].height(h).into()
+}
+
+
+/// Shared empty state: icon, short title, one-line hint, optional button.
+pub fn empty_state<'a>(
+    icon: crate::icons::Icon,
+    title: &'a str,
+    hint: &'a str,
+    action: Option<(&'a str, Message)>,
+) -> Element<'a, Message> {
+    let k = crate::theme::t();
+    let mut col = column![
+        crate::icons::icon(icon, 36.0).color(crate::theme::a(k.muted_fg, 0.7)),
+        text(title).size(theme::TITLE).font(theme::SEMIBOLD),
+        ui::muted(hint, theme::BODY),
+    ]
+    .spacing(10)
+    .align_x(iced::Alignment::Center);
+    if let Some((label, msg)) = action {
+        col = col.push(
+            iced::widget::button(text(label).size(theme::BODY))
+                .padding(iced::Padding::from([8.0, 16.0]))
+                .style(theme::btn_primary)
+                .on_press(msg),
+        );
+    }
+    container(col)
+        .width(Length::Fill)
+        .padding(iced::Padding::from([48.0, 16.0]))
+        .align_x(iced::Alignment::Center)
+        .into()
+}
+
+/// The library has no songs at all.
+pub fn library_empty<'a>() -> Element<'a, Message> {
+    empty_state(
+        crate::icons::Icon::FolderOpen,
+        "No songs yet",
+        "Drop a music folder here, or add one.",
+        Some((
+            "Add music folder",
+            Message::Navigate(crate::route::Route::Settings(Some(crate::route::SettingsTab::Library))),
+        )),
+    )
+}
+
+/// Empty library → `library_empty()`; otherwise `text` as a short note
+/// (a tab with nothing in it, e.g. no composer tags).
+pub fn empty_or_note<'a>(app: &crate::app::Halo, text: &'a str) -> Element<'a, Message> {
+    if app.pages.library_count == Some(0) {
+        library_empty()
+    } else {
+        note(text)
+    }
 }
 
 #[cfg(test)]

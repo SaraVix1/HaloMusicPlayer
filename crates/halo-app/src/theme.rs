@@ -7,7 +7,7 @@
 
 #![allow(dead_code)]
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use iced::border::Radius;
 use iced::font::Weight;
@@ -41,26 +41,32 @@ pub const FONT_BYTES: &[&[u8]] = &[
     include_bytes!("../assets/fonts/lucide.ttf"),
 ];
 
-// ── Type scale (Tailwind) ─────────────────────────────────────────────────────
+// ── Type scale: three sizes ──────────────────────────────────────────────────
+//
+// Hierarchy comes from weight (regular / MEDIUM / SEMIBOLD), not more sizes.
 
-pub const TEXT_9: f32 = 9.0;
-pub const TEXT_10: f32 = 10.0;
-pub const TEXT_11: f32 = 11.0;
-pub const TEXT_XS: f32 = 12.0;
-pub const TEXT_SM: f32 = 14.0;
-pub const TEXT_BASE: f32 = 16.0;
-pub const TEXT_LG: f32 = 18.0;
-pub const TEXT_XL: f32 = 20.0;
-pub const TEXT_2XL: f32 = 24.0;
-pub const TEXT_3XL: f32 = 30.0;
+/// Page and section titles (semibold).
+pub const TITLE: f32 = 20.0;
+/// Most text.
+pub const BODY: f32 = 14.0;
+/// Secondary text: artists, counts, hints, badges.
+pub const SMALL: f32 = 12.0;
+/// The one exception: the song title in full-screen now playing.
+pub const DISPLAY: f32 = 28.0;
 
-// ── Radii (--radius = 10px) ───────────────────────────────────────────────────
+// ── Radii ────────────────────────────────────────────────────────────────────
+//
+// Controls (buttons, inputs, list items) 8 px; surfaces (cards, covers,
+// popovers, dialogs, panels) 12 px; 4–6 px only for tiny things (key hints,
+// chips, small thumbnails).
 
-pub const R_XS: f32 = 4.0; // `rounded`
+pub const R_XS: f32 = 4.0;
 pub const R_SM: f32 = 6.0;
+/// Controls.
 pub const R_MD: f32 = 8.0;
-pub const R_LG: f32 = 10.0;
-pub const R_XL: f32 = 14.0;
+/// Surfaces.
+pub const R_LG: f32 = 12.0;
+pub const R_XL: f32 = 12.0;
 pub const R_FULL: f32 = 999.0;
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
@@ -153,14 +159,14 @@ pub const LIGHT: Tokens = Tokens {
     accent: hex(0xf5f5f5),
     accent_fg: hex(0x171717),
     destructive: hex(0xe7000b),
-    border: hex(0xe5e5e5),
+    border: hex(0xececec),
     input: hex(0xe5e5e5),
     ring: hex(0xa1a1a1),
     sidebar: hex(0xfafafa),
     sidebar_fg: hex(0x0a0a0a),
     sidebar_accent: hex(0xf5f5f5),
     sidebar_accent_fg: hex(0x171717),
-    sidebar_border: hex(0xe5e5e5),
+    sidebar_border: hex(0xececec),
 };
 
 pub const DARK: Tokens = Tokens {
@@ -183,7 +189,7 @@ pub const DARK: Tokens = Tokens {
         r: 1.0,
         g: 1.0,
         b: 1.0,
-        a: 0.10,
+        a: 0.06,
     },
     input: Color {
         r: 1.0,
@@ -200,7 +206,7 @@ pub const DARK: Tokens = Tokens {
         r: 1.0,
         g: 1.0,
         b: 1.0,
-        a: 0.10,
+        a: 0.06,
     },
 };
 
@@ -214,13 +220,90 @@ pub fn is_dark() -> bool {
     IS_DARK.load(Ordering::Relaxed)
 }
 
-/// The active token set.
-pub fn t() -> &'static Tokens {
-    if is_dark() {
-        &DARK
+// ── Accent ────────────────────────────────────────────────────────────────────
+
+/// Halo's own accent (the icon's blue): used when the current track has no
+/// art, its art has no vivid colour, or "Accent from album art" is off.
+pub const DEFAULT_ACCENT: Color = hex(0x3d9bde);
+
+/// Current accent, packed `0xRRGGBB` (alpha is always 1).
+static ACCENT: AtomicU32 = AtomicU32::new(0x3d9bde);
+
+/// Set the accent (the theme's `primary`). Takes effect on the next redraw.
+pub fn set_accent(c: Color) {
+    let [r, g, b, _] = c.into_rgba8();
+    ACCENT.store(u32::from_be_bytes([0, r, g, b]), Ordering::Relaxed);
+}
+
+pub fn accent() -> Color {
+    let [_, r, g, b] = ACCENT.load(Ordering::Relaxed).to_be_bytes();
+    Color::from_rgb8(r, g, b)
+}
+
+/// `c` with its lightness clamped so it reads well on the theme's
+/// background: lighter on dark, darker on light. Hue and saturation kept.
+pub fn readable(c: Color, dark: bool) -> Color {
+    let (h, s, l) = to_hsl(c);
+    let l = if dark { l.clamp(0.55, 0.72) } else { l.clamp(0.36, 0.48) };
+    from_hsl(h, s, l)
+}
+
+/// Text colour for something filled with `c`: near-black on light fills,
+/// white on dark ones (WCAG relative luminance).
+pub fn on(c: Color) -> Color {
+    let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
+    let lum = 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+    // Contrast with white vs. with #0a0a0a; pick the higher.
+    if (1.05 / (lum + 0.05)) >= ((lum + 0.05) / 0.053) {
+        WHITE
     } else {
-        &LIGHT
+        hex(0x0a0a0a)
     }
+}
+
+pub fn to_hsl(c: Color) -> (f32, f32, f32) {
+    let max = c.r.max(c.g).max(c.b);
+    let min = c.r.min(c.g).min(c.b);
+    let l = (max + min) / 2.0;
+    let d = max - min;
+    if d.abs() < f32::EPSILON {
+        return (0.0, 0.0, l);
+    }
+    let s = d / (1.0 - (2.0 * l - 1.0).abs());
+    let h = if max == c.r {
+        ((c.g - c.b) / d).rem_euclid(6.0)
+    } else if max == c.g {
+        (c.b - c.r) / d + 2.0
+    } else {
+        (c.r - c.g) / d + 4.0
+    } * 60.0;
+    (h, s.clamp(0.0, 1.0), l)
+}
+
+pub fn from_hsl(h: f32, s: f32, l: f32) -> Color {
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - ((h / 60.0).rem_euclid(2.0) - 1.0).abs());
+    let m = l - c / 2.0;
+    let (r, g, b) = match (h.rem_euclid(360.0) / 60.0) as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    Color::from_rgb(r + m, g + m, b + m)
+}
+
+/// The active token set: light or dark, with the accent as `primary`
+/// (buttons, progress, sliders, toggles, active nav, focus ring).
+pub fn t() -> Tokens {
+    let mut k = if is_dark() { DARK } else { LIGHT };
+    let acc = readable(accent(), k.dark);
+    k.primary = acc;
+    k.primary_fg = on(acc);
+    k.ring = a(acc, 0.7);
+    k
 }
 
 /// Blend a translucent colour over the page background (for places that
@@ -336,7 +419,7 @@ pub fn popover(_: &Theme) -> container::Style {
     container::Style {
         background: Some(k.popover.into()),
         text_color: Some(k.popover_fg),
-        border: border(k.border, 1.0, R_LG),
+        border: no_border(R_LG),
         shadow: shadow_lg(),
         ..container::Style::default()
     }
@@ -348,7 +431,7 @@ pub fn dialog(_: &Theme) -> container::Style {
     container::Style {
         background: Some(k.popover.into()),
         text_color: Some(k.popover_fg),
-        border: border(a(k.foreground, 0.10), 1.0, R_XL),
+        border: no_border(R_XL),
         shadow: shadow_lg(),
         ..container::Style::default()
     }
@@ -406,6 +489,58 @@ pub fn divider_alpha(alpha: f32) -> impl Fn(&Theme) -> container::Style {
     }
 }
 
+/// Album / artist card hover: the same soft rounded highlight as song rows.
+pub fn card(hovered: bool) -> container::Style {
+    container::Style {
+        background: hovered.then(|| a(t().muted, 0.35).into()),
+        text_color: Some(t().foreground),
+        border: no_border(R_LG),
+        ..container::Style::default()
+    }
+}
+
+/// Padding inside a card's hover highlight.
+pub const CARD_PAD: f32 = 8.0;
+
+/// Queue panel: raised surface with a soft shadow on its left edge.
+pub fn side_panel(_: &Theme) -> container::Style {
+    let k = t();
+    container::Style {
+        background: Some(k.popover.into()),
+        text_color: Some(k.popover_fg),
+        border: no_border(0.0),
+        shadow: shadow_lg(),
+        ..container::Style::default()
+    }
+}
+
+/// Dark veil over the blurred art in full-screen now playing.
+pub fn scrim(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(a(BLACK, 0.55).into()),
+        ..container::Style::default()
+    }
+}
+
+/// Transparent title bar (full-screen now playing shows the art under it).
+pub fn clear(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(t().foreground),
+        ..container::Style::default()
+    }
+}
+
+/// Window frame — title bar and now-playing bar — in the sidebar's colour,
+/// so the chrome frames the page without divider lines.
+pub fn frame(_: &Theme) -> container::Style {
+    let k = t();
+    container::Style {
+        background: Some(k.sidebar.into()),
+        text_color: Some(k.foreground),
+        ..container::Style::default()
+    }
+}
+
 pub fn sidebar_divider(_: &Theme) -> container::Style {
     container::Style {
         background: Some(t().sidebar_border.into()),
@@ -438,10 +573,10 @@ fn disabled(mut s: button::Style, opacity: f32) -> button::Style {
 /// shadcn `variant="default"` (primary fill).
 pub fn btn_primary(_: &Theme, status: button::Status) -> button::Style {
     let k = t();
-    let base = btn(Some(k.primary), k.primary_fg, no_border(R_LG));
+    let base = btn(Some(k.primary), k.primary_fg, no_border(R_MD));
     match status {
-        button::Status::Hovered => btn(Some(a(k.primary, 0.8)), k.primary_fg, no_border(R_LG)),
-        button::Status::Pressed => btn(Some(a(k.primary, 0.9)), k.primary_fg, no_border(R_LG)),
+        button::Status::Hovered => btn(Some(a(k.primary, 0.8)), k.primary_fg, no_border(R_MD)),
+        button::Status::Pressed => btn(Some(a(k.primary, 0.9)), k.primary_fg, no_border(R_MD)),
         button::Status::Disabled => disabled(base, 0.5),
         button::Status::Active => base,
     }
@@ -452,12 +587,12 @@ pub fn btn_outline(_: &Theme, status: button::Status) -> button::Style {
     let k = t();
     let fill = if k.dark { a(k.input, 0.3) } else { k.background };
     let border_c = if k.dark { k.input } else { k.border };
-    let base = btn(Some(fill), k.foreground, border(border_c, 1.0, R_LG));
+    let base = btn(Some(fill), k.foreground, border(border_c, 1.0, R_MD));
     match status {
         button::Status::Hovered | button::Status::Pressed => btn(
             Some(if k.dark { a(k.input, 0.5) } else { k.muted }),
             k.foreground,
-            border(border_c, 1.0, R_LG),
+            border(border_c, 1.0, R_MD),
         ),
         button::Status::Disabled => disabled(base, 0.5),
         button::Status::Active => base,
@@ -467,10 +602,10 @@ pub fn btn_outline(_: &Theme, status: button::Status) -> button::Style {
 /// shadcn `variant="secondary"`.
 pub fn btn_secondary(_: &Theme, status: button::Status) -> button::Style {
     let k = t();
-    let base = btn(Some(k.secondary), k.secondary_fg, no_border(R_LG));
+    let base = btn(Some(k.secondary), k.secondary_fg, no_border(R_MD));
     match status {
         button::Status::Hovered | button::Status::Pressed => {
-            btn(Some(a(k.secondary, 0.8)), k.secondary_fg, no_border(R_LG))
+            btn(Some(a(k.secondary, 0.8)), k.secondary_fg, no_border(R_MD))
         }
         button::Status::Disabled => disabled(base, 0.5),
         button::Status::Active => base,
@@ -480,12 +615,12 @@ pub fn btn_secondary(_: &Theme, status: button::Status) -> button::Style {
 /// shadcn `variant="ghost"`.
 pub fn btn_ghost(_: &Theme, status: button::Status) -> button::Style {
     let k = t();
-    let base = btn(None, k.foreground, no_border(R_LG));
+    let base = btn(None, k.foreground, no_border(R_MD));
     match status {
         button::Status::Hovered | button::Status::Pressed => btn(
             Some(if k.dark { a(k.muted, 0.5) } else { k.muted }),
             k.foreground,
-            no_border(R_LG),
+            no_border(R_MD),
         ),
         button::Status::Disabled => disabled(base, 0.5),
         button::Status::Active => base,
@@ -495,10 +630,10 @@ pub fn btn_ghost(_: &Theme, status: button::Status) -> button::Style {
 /// shadcn `variant="destructive"` (`bg-destructive/10 text-destructive`).
 pub fn btn_destructive(_: &Theme, status: button::Status) -> button::Style {
     let k = t();
-    let base = btn(Some(a(k.destructive, 0.10)), k.destructive, no_border(R_LG));
+    let base = btn(Some(a(k.destructive, 0.10)), k.destructive, no_border(R_MD));
     match status {
         button::Status::Hovered | button::Status::Pressed => {
-            btn(Some(a(k.destructive, 0.20)), k.destructive, no_border(R_LG))
+            btn(Some(a(k.destructive, 0.20)), k.destructive, no_border(R_MD))
         }
         button::Status::Disabled => disabled(base, 0.5),
         button::Status::Active => base,
@@ -557,7 +692,7 @@ pub fn btn_nav(active: bool) -> impl Fn(&Theme, button::Status) -> button::Style
     move |_, status| {
         let k = t();
         if active {
-            return btn(Some(k.sidebar_accent), k.sidebar_accent_fg, no_border(R_MD));
+            return btn(Some(a(k.primary, 0.16)), k.primary, no_border(R_MD));
         }
         match status {
             button::Status::Hovered | button::Status::Pressed => btn(
@@ -593,6 +728,19 @@ pub fn btn_play(_: &Theme, status: button::Status) -> button::Style {
     match status {
         button::Status::Hovered | button::Status::Pressed => {
             btn(Some(a(k.foreground, 0.8)), k.background, no_border(R_FULL))
+        }
+        button::Status::Disabled => disabled(base, 0.3),
+        button::Status::Active => base,
+    }
+}
+
+/// Big round accent button (full-screen Play / Pause).
+pub fn btn_accent_round(_: &Theme, status: button::Status) -> button::Style {
+    let k = t();
+    let base = btn(Some(k.primary), k.primary_fg, no_border(R_FULL));
+    match status {
+        button::Status::Hovered | button::Status::Pressed => {
+            btn(Some(a(k.primary, 0.85)), k.primary_fg, no_border(R_FULL))
         }
         button::Status::Disabled => disabled(base, 0.3),
         button::Status::Active => base,

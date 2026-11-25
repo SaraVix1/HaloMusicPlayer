@@ -255,7 +255,7 @@ pub fn view<'a>(ed: &'a Editor, d: &'a Draft) -> Element<'a, Message> {
         .new_art_path
         .as_deref()
         .or(ed.meta.as_ref().and_then(|m| m.album_art_path.as_deref()));
-    let mut preview = stack![ui::art(current, 152.0, theme::R_MD)];
+    let mut preview = stack![ui::art(current, 152.0, theme::R_LG)];
     if ed.extracting {
         preview = preview.push(
             center(spin(Spinner::Loader, 20.0, spin_angle(), theme::WHITE))
@@ -286,18 +286,18 @@ pub fn view<'a>(ed: &'a Editor, d: &'a Draft) -> Element<'a, Message> {
                     .id(URL_INPUT)
                     .on_input(|u| am(Msg::Url(u)))
                     .on_submit(am(Msg::LoadUrl))
-                    .size(theme::TEXT_XS)
+                    .size(theme::SMALL)
                     .padding(Padding::from([4.0, 8.0]))
                     .style(theme::input_muted),
             );
             if let Some(e) = &ed.url_error {
-                col = col.push(text(e.as_str()).size(theme::TEXT_XS).color(k.destructive));
+                col = col.push(text(e.as_str()).size(theme::SMALL).color(k.destructive));
             }
             let mut load = row![].spacing(4).align_y(Alignment::Center);
             if ed.url_loading {
                 load = load.push(spin(Spinner::Loader, 11.0, spin_angle(), k.primary_fg));
             }
-            load = load.push(text("Load").size(theme::TEXT_XS));
+            load = load.push(text("Load").size(theme::SMALL));
             let can = !ed.url.trim().is_empty() && !ed.url_loading;
             col = col.push(
                 row![
@@ -310,7 +310,7 @@ pub fn view<'a>(ed: &'a Editor, d: &'a Draft) -> Element<'a, Message> {
                             st
                         })
                         .on_press_maybe(can.then(|| am(Msg::LoadUrl))),
-                    button(container(text("Cancel").size(theme::TEXT_XS)).width(Length::Fill).align_x(Alignment::Center))
+                    button(container(text("Cancel").size(theme::SMALL)).width(Length::Fill).align_x(Alignment::Center))
                         .width(Length::Fill)
                         .padding(Padding::from([4.0, 0.0]))
                         .style(|th, s| {
@@ -324,16 +324,16 @@ pub fn view<'a>(ed: &'a Editor, d: &'a Draft) -> Element<'a, Message> {
             );
         }
         ArtMode::Online => {
-            col = col.push(text("Suggestions").size(theme::TEXT_XS).font(theme::MEDIUM).color(k.muted_fg));
+            col = col.push(text("Suggestions").size(theme::SMALL).font(theme::MEDIUM).color(k.muted_fg));
             if ed.suggestions_loading {
                 col = col.push(center(spin(Spinner::Loader, 18.0, spin_angle(), k.muted_fg)).height(80));
             }
             if let Some(e) = &ed.suggestions_error {
-                col = col.push(text(e.as_str()).size(theme::TEXT_XS).color(k.destructive));
+                col = col.push(text(e.as_str()).size(theme::SMALL).color(k.destructive));
             }
             if let (Some(list), false) = (&ed.suggestions, ed.suggestions_loading) {
                 if list.is_empty() {
-                    col = col.push(ui::muted("No results.", theme::TEXT_XS));
+                    col = col.push(ui::muted("No results.", theme::SMALL));
                 } else {
                     let mut grid = column![].spacing(4);
                     for (ri, chunk) in list.chunks(3).enumerate() {
@@ -398,7 +398,7 @@ pub fn view<'a>(ed: &'a Editor, d: &'a Draft) -> Element<'a, Message> {
                 }
             }
             col = col.push(
-                button(text("← Back").size(theme::TEXT_XS))
+                button(text("← Back").size(theme::SMALL))
                     .padding(0)
                     .style(theme::btn_icon)
                     .on_press(am(Msg::Back)),

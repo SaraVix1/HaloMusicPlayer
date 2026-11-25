@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Halo icon, 32 px: drawn on the pixel grid (stems 2 px, heads 8 px). -->
+  <defs>
+    <linearGradient id="blue" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="32" y2="0">
+      <stop offset="0.5625" stop-color="#3bb3ef"/><stop offset="0.5625" stop-color="#3d9bde"/>
+    </linearGradient>
+    <linearGradient id="pink" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="32" y2="0">
+      <stop offset="0.25" stop-color="#f86697"/><stop offset="0.25" stop-color="#f43e6a"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#pink)">
+    <circle cx="8" cy="14" r="3"/>
+    <rect x="9" y="4" width="2" height="10" rx="1"/>
+  </g>
+  <path d="M10 5 C10 7.5 13 7 13 8.75" fill="none" stroke="url(#pink)" stroke-width="2" stroke-linecap="round"/>
+  <g fill="url(#blue)">
+    <circle cx="10" cy="25" r="4"/>
+    <circle cx="22" cy="22" r="4"/>
+    <polygon points="12,11 26,6.5 26,22 24,22 24,11.14 14,14.36 14,25 12,25"/>
+  </g>
+</svg>

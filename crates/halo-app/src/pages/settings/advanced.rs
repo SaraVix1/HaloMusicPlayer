@@ -87,7 +87,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         container(
             column![
                 super::label("Destructive actions"),
-                ui::muted("Use with care — these cannot be undone.", theme::TEXT_XS),
+                ui::muted("Use with care — these cannot be undone.", theme::SMALL),
                 ui::vspace(12.0),
                 row![
                     outline_btn(Some(icon(Icon::Eraser, 15.0).into()), "Clear cache", enabled(Msg::ClearCache)),

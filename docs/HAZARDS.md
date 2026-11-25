@@ -127,9 +127,9 @@ Each entry: **symptom → cause → fix**.
 
 **Cause.** Two things, both measured at 50k tracks:
 - Row-by-row autocommit inserts cost one WAL commit each — `replace_queue` took **~7.2 s**, all while holding the DB `Mutex`. One transaction + one prepared statement: **~150 ms** (debug build).
-- `track_at_index` used to `ORDER BY position LIMIT 1 OFFSET n` with no index (~17 ms per Next). It is now an indexed point lookup `WHERE position = n` (~0.02 ms, `010_queue_position_index.sql`), which is only correct because **every queue writer keeps `position` contiguous 0..n-1** (`replace_queue` numbers from 0, `add_to_queue` appends at MAX+1, `remove_from_queue` deletes + shifts down in one transaction). A gap falls back to the old OFFSET query, so it stays correct, just slower.
+- `track_at_index` used to `ORDER BY position LIMIT 1 OFFSET n` with no index (~17 ms per Next). It is now an indexed point lookup `WHERE position = n` (~0.02 ms, `010_queue_position_index.sql`), which is only correct because **every queue writer keeps `position` contiguous 0..n-1** (`replace_queue` numbers from 0, `add_to_queue` appends at MAX+1, `remove_from_queue` deletes + shifts down in one transaction, `move_queue_position` (Up next drag) parks the row at -1, shifts the range and drops it in one transaction, `keep_only_position` (Up next Clear) leaves one row at 0). A gap falls back to the old OFFSET query, so it stays correct, just slower.
 
-**Fix / rule.** Any new queue write (reorder, insert-at, bulk add) must keep positions contiguous and run inside `conn.unchecked_transaction()`. Shuffle state is kept in memory (`ShuffleState`); persist the cursor per move and the full order only when it changes — don't reintroduce a full JSON round-trip per Next. Re-measure with `cargo test -p halo --lib large_queue_timing -- --ignored --nocapture`.
+**Fix / rule.** Any new queue write (reorder, insert-at, bulk add) must keep positions contiguous and run inside `conn.unchecked_transaction()`. With shuffle on, the Up next panel reorders the shuffle order (`ShuffleOrder::move_upcoming`), not queue positions — positions only mean play order when shuffle is off. Shuffle state is kept in memory (`ShuffleState`); persist the cursor per move and the full order only when it changes — don't reintroduce a full JSON round-trip per Next. Re-measure with `cargo test -p halo --lib large_queue_timing -- --ignored --nocapture`.
 
 ---
 
@@ -144,6 +144,19 @@ Each entry: **symptom → cause → fix**.
 - AppImage cannot register file associations at all (needs AppImageLauncher / appimaged).
 
 **Fix.** All paths funnel into `open_files::enqueue` ([crates/halo-backend/src/open_files.rs](../crates/halo-backend/src/open_files.rs)), which coalesces for 300 ms before opening the batch as one queue. Cold-start argv is handled in `main` via `Backend::handle_launch_files` *instead of* `resume_on_launch`; forwarded launches go through `Backend::handle_forwarded_args`. `PLAYABLE_EXTENSIONS` and the packager `fileAssociations` must list the same formats (only ones rodio can decode — not opus/wma).
+
+---
+
+## Single instance: claim the socket name before `Backend::start`; the name is per user
+
+**Symptom.** Opening several files with Halo closed starts several Halos, all playing. Or, with two users logged in, the second user's launch does nothing (it went to the first user's Halo). Or (Windows) a file opened while Halo runs plays but the window only flashes in the taskbar.
+
+**Cause.**
+- Explorer starts one process per selected file, all at once. If each first tries to connect, then starts the backend (DB, audio device: hundreds of ms), and only then listens, every one of them finds nobody listening and becomes a full Halo.
+- Linux abstract sockets and Windows `\\.\pipe\` names are machine-wide, not per user.
+- Windows lets only the process the user just launched take the foreground; the running Halo is a background process, so `gain_focus` only flashes.
+
+**Fix.** [crates/halo-app/src/single_instance.rs](../crates/halo-app/src/single_instance.rs): `claim()` runs first in `main` (after `prefer_x11`, which must precede any thread). Creating the listener *is* the lock — Windows sets `FILE_FLAG_FIRST_PIPE_INSTANCE` (interprocess does this), Linux abstract names are exclusive, and `try_overwrite` stays off. A launch that gets `AddrInUse` retries connect/create for up to 5 s instead of starting. The primary accepts immediately and holds messages in an `Inbox` until `Primary::attach(backend)`. The name is `com.saravix.halo.<uid>.sock` (Unix) / `….<USERNAME>.sock` (Windows). The forwarding process calls `AllowSetForegroundWindow(ASFW_ANY)` before sending, so the running Halo may raise itself. On Linux/X11, KWin's focus-stealing prevention may still refuse `_NET_ACTIVE_WINDOW` from the running Halo (it marks the window "demands attention" instead); winit gives no way to pass the launcher's `DESKTOP_STARTUP_ID` along.
 
 ---
 
@@ -270,6 +283,62 @@ Saves multiply by the same scale and clamp again; a window dropped outside the w
 **Cause.** iced may call the `responsive` closure on every layout. Moving an element out of a `RefCell` inside it (`take()`) leaves nothing for the next call.
 
 **Fix.** Build everything inside the closure from borrowed data. For grids, `common::vgrid` passes the computed cell width to the item builder instead (used to make album art / avatars square).
+
+---
+
+## iced: the cursor inside a `scrollable` is in content coordinates
+
+**Symptom.** A right-click menu opens at the right spot at the top of a list, but lower and lower the further the list is scrolled.
+
+**Cause.** A `scrollable` translates the cursor it passes to its children by the scroll offset, so `cursor.position()` in a row is a position in the scrolled content, not in the window.
+
+**Fix.** Anything that needs the on-screen position (the context menu) gets it from a widget outside every scrollable: `widgets::probe::RightClickProbe`, an invisible top layer of the main window that publishes right-click positions in window coordinates without capturing events or reporting a mouse interaction (a stack only hides the cursor from lower layers when an upper one reports an interaction). The row just says "open my menu" (`context_menu::Msg::Open`); the menu takes the position from the probe's `RightAt`, whichever of the two messages comes first.
+
+---
+
+## Windows: "VCRUNTIME140.dll was not found"
+
+**Symptom.** On a Windows PC without the Visual C++ Redistributable, `halo.exe` doesn't start: *The code execution cannot proceed because VCRUNTIME140.dll was not found* (v0.1.4 shipped like this).
+
+**Cause.** Rust's MSVC target links the C runtime dynamically by default. Tauri's build script linked it statically; the iced port lost that.
+
+**Fix.** `rustflags = ["-C", "target-feature=+crt-static"]` under `[target.x86_64-pc-windows-msvc]` in [.cargo/config.toml](../.cargo/config.toml); the `cc` crate (bundled SQLite) follows it. A `RUSTFLAGS` environment variable would replace these flags, so CI must not set one.
+
+---
+
+## Memory: glibc keeps freed heap from short-lived threads
+
+**Symptom.** RSS climbs by 100–300 MB while skipping through songs and never comes back down, although nothing leaks (heap profilers show the memory freed).
+
+**Cause.** glibc gives each allocating thread its own arena (up to 8 per core) and seldom returns freed pages to the OS. Every track change runs blocking tasks on tokio's pool (waveform decode, accent / blurred cover decode, lyrics), and large freed buffers raise glibc's mmap threshold, so later big buffers come from those arenas and stay resident.
+
+**Fix.** [`mem::limit_arenas`](../crates/halo-backend/src/mem.rs) caps glibc at 2 arenas, first thing in `main` (an explicit `MALLOC_ARENA_MAX` wins), and the ticker calls `mem::trim` (`malloc_trim`) 3 s after a track change; the thumbnail worker trims when its queue empties. Don't buffer a whole song: [`extract_peaks`](../crates/halo-backend/src/scanner/waveform.rs) streams block sums (it used to hold ~50 MB per track change).
+
+---
+
+## Memory: never draw a full-size cover in a list
+
+**Symptom.** Hundreds of MB once Albums / Home have been shown; slow first paint of a grid.
+
+**Cause.** `image::Handle::from_path(original)` decodes the whole file (covers in the art cache go up to 1440 px, ~8 MB of pixels each) even when drawn at 40 px, and the renderer keeps it while it is on screen.
+
+**Fix.** Go through `ui::art` / `ui::art_sized` (or [`thumbs::pick`](../crates/halo-app/src/thumbs.rs) directly) with the drawn size: ≤ 64 px gets a 128 px thumbnail, ≤ 192 px a 384 px one, bigger the original (full-screen cover). A missing thumbnail shows the placeholder and is made by the `halo-thumbs` worker, which wakes the UI (`Message::ThumbsReady`). Worker threads that only need colours (accent, blurred background) use `thumbs::ensure(path, SMALL)`.
+
+---
+
+## Renderer: wgpu is limited to one backend (Vulkan on Linux, DX12 on Windows)
+
+**Symptom.** With `WGPU_BACKEND` unset, startup spends ~450 ms before the first frame and RSS is ~210 MB on Linux, most of it graphics drivers.
+
+**Cause.** iced's window compositor asks wgpu for `Backends::all()`. wgpu is built with its default features, so Linux initialises OpenGL / EGL next to Vulkan, and Windows initialises DX12, Vulkan and OpenGL. macOS only compiles Metal. (On Linux the Vulkan loader also loads every installed ICD, lavapipe + LLVM included; disabling it saved only ~4 MB, so it is left alone.)
+
+**Fix.** `prefer_one_gpu_backend` in [main.rs](../crates/halo-app/src/main.rs) sets `WGPU_BACKEND=vulkan` (Linux) / `dx12` (Windows) before any thread starts, unless already set. Linux, back to back: ~450 → ~375 ms, 211 → 187 MB. Windows: not measured yet. Without that backend iced falls back to tiny-skia by itself, as long as `ICED_BACKEND` is not forced (tested on Linux with `WGPU_BACKEND=dx12`). tiny-skia is lighter at rest (~68 MB, ~80 ms startup) but costs ~35 % of a core while covers fade at 1200×750, growing with window pixels. Users choose in Settings → Appearance → Renderer ([renderer.rs](../crates/halo-app/src/renderer.rs)): the pref is read from the database file before any thread starts (`ui::read_pref_early`) and sets `ICED_BACKEND=tiny-skia`; it applies at the next launch.
+
+---
+
+## Profiling: `HALO_PROFILE=1`
+
+`HALO_PROFILE=1` prints startup marks (`profile::mark`), every 5 s the number of messages per kind (`app::profile_count`; printed when the **next** message arrives, so a quiet stretch shows up late, not as zeros) and which player-state fields changed. [scripts/perf-measure.py](../scripts/perf-measure.py) measures startup / memory / CPU on a sandboxed copy of the library (volume 0, Last.fm signed out). The ticker sends `PlayerState` only when it changed; something that redraws 4×/s while paused is a regression.
 
 ---
 

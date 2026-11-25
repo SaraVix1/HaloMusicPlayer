@@ -19,7 +19,7 @@ use crate::app::{Halo, Message, PlayerCmd};
 use crate::format::duration_u;
 use crate::icons::{icon, Icon};
 use crate::theme::{self, a, t};
-use crate::ui::{art, icon_box};
+use crate::ui::icon_box;
 use crate::widgets::line;
 
 const ART: f32 = 30.0;
@@ -288,9 +288,9 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         .map(|t| t.artists.join(", "))
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "—".into());
-    let dot = || text("·").size(theme::TEXT_9).color(a(k.muted_fg, 0.6));
+    let dot = || text("·").size(theme::SMALL).color(a(k.muted_fg, 0.6));
     let mut l1 = row![line(title)
-        .size(theme::TEXT_11)
+        .size(theme::SMALL)
         .font(theme::MEDIUM)
         .line_height_px(13.0)
         .color(if has_track { k.foreground } else { a(k.foreground, 0.4) })
@@ -300,7 +300,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     if !album.is_empty() {
         l1 = l1.push(dot()).push(
             line(album)
-                .size(theme::TEXT_9)
+                .size(theme::SMALL)
                 .line_height_px(13.0)
                 .color(k.muted_fg)
                 .width(Length::Fill)
@@ -310,7 +310,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     let l2: Element<'_, Message> = match composer {
         Some(c) => {
             let mut r = row![line(c)
-                .size(theme::TEXT_9)
+                .size(theme::SMALL)
                 .line_height_px(11.0)
                 .color(k.muted_fg)
                 .max_width(120.0)]
@@ -319,7 +319,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             if artist != "—" {
                 r = r.push(dot()).push(
                     line(artist)
-                        .size(theme::TEXT_9)
+                        .size(theme::SMALL)
                         .line_height_px(11.0)
                         .color(k.muted_fg)
                         .width(Length::Fill)
@@ -329,7 +329,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             r.into()
         }
         None => line(artist)
-            .size(theme::TEXT_9)
+            .size(theme::SMALL)
             .line_height_px(11.0)
             .color(k.muted_fg)
             .width(Length::Fill)
@@ -337,7 +337,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             .into(),
     };
     let default_layer = row![
-        art(track.and_then(|t| t.album_art_path.as_deref()), ART, 0.0),
+        app.fades.cover(track.and_then(|t| t.album_art_path.as_deref()), ART, 0.0),
         column![l1, l2].spacing(1).width(Length::Fill).padding(Padding::ZERO.bottom(2.0)),
     ]
     .spacing(8)
@@ -382,7 +382,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             .into()
     };
     let time = |s: String, right: bool| {
-        let tx = text(s).size(theme::TEXT_9).color(k.muted_fg).width(28);
+        let tx = text(s).size(theme::SMALL).color(k.muted_fg).width(28);
         if right { tx.align_x(iced::alignment::Horizontal::Right) } else { tx }
     };
     let control_layer = row![

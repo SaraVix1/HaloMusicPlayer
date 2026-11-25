@@ -380,14 +380,14 @@ fn select<'a>(
     f: impl Fn(Opt) -> Message + 'a,
 ) -> Element<'a, Message> {
     let pl = pick_list(opts, selected, f)
-        .text_size(theme::TEXT_SM)
+        .text_size(theme::BODY)
         .padding(Padding::from([4.0, 8.0]))
         .style(theme::pick)
         .menu_style(theme::pick_menu);
     if disabled {
         // A pick_list can't be disabled; render it inert at 60% opacity.
         let label = selected.map(|o| o.label).unwrap_or("");
-        container(text(label).size(theme::TEXT_SM).color(a(t().foreground, 0.6)))
+        container(text(label).size(theme::BODY).color(a(t().foreground, 0.6)))
             .padding(Padding::from([4.0, 8.0]))
             .style(theme::bordered(theme::R_MD))
             .into()
@@ -403,7 +403,7 @@ fn input<'a>(
     f: impl Fn(String) -> Message + 'a,
 ) -> text_input::TextInput<'a, Message> {
     let mut i = text_input(placeholder, value)
-        .size(theme::TEXT_SM)
+        .size(theme::BODY)
         .padding(Padding::from([4.0, 8.0]))
         .style(theme::input);
     if !disabled {
@@ -443,15 +443,15 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             .style(theme::btn_icon)
             .on_press(Message::Navigate(Route::Playlists)),
         column![
-            line(p.name.as_str()).size(theme::TEXT_2XL).font(theme::SEMIBOLD).width(Length::Fill),
-            ui::muted(sub, theme::TEXT_SM),
+            line(p.name.as_str()).size(theme::TITLE).font(theme::SEMIBOLD).width(Length::Fill),
+            ui::muted(sub, theme::BODY),
         ]
         .width(Length::Fill),
         button(icon_box(Icon::RefreshCw, 16.0, 28.0, 28.0))
             .padding(0)
             .style(theme::btn_icon)
             .on_press(sm(SMsg::Refresh)),
-        button(text(edit_label).size(theme::TEXT_XS))
+        button(text(edit_label).size(theme::SMALL))
             .padding(Padding::from([4.0, 12.0]))
             .style(move |th, s| {
                 let k = t();
@@ -481,13 +481,13 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
 
     // ── Rule editor ───────────────────────────────────────────────────────────
     if st.editing {
-        let mut match_btns = row![ui::muted("Match", theme::TEXT_SM)]
+        let mut match_btns = row![ui::muted("Match", theme::BODY)]
             .spacing(8)
             .align_y(Alignment::Center);
         for (m, label) in [("all", "All rules"), ("any", "Any rule")] {
             let active = st.match_mode == m;
             match_btns = match_btns.push(
-                button(text(label).size(theme::TEXT_XS))
+                button(text(label).size(theme::SMALL))
                     .padding(Padding::from([4.0, 10.0]))
                     .style(theme::btn_chip(active, theme::R_MD))
                     .on_press_maybe((!builtin).then(|| sm(SMsg::Match(m.into())))),
@@ -522,14 +522,14 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             rules = rules.push(rr);
         }
         if st.rules.is_empty() {
-            rules = rules.push(ui::muted("No rules — all tracks will match.", theme::TEXT_SM));
+            rules = rules.push(ui::muted("No rules — all tracks will match.", theme::BODY));
         }
 
         let mut editor = column![name_row, rules].spacing(16);
         if !builtin {
             editor = editor.push(
                 button(
-                    row![icon(Icon::Plus, 14.0), text("Add rule").size(theme::TEXT_SM)]
+                    row![icon(Icon::Plus, 14.0), text("Add rule").size(theme::BODY)]
                         .spacing(6)
                         .align_y(Alignment::Center),
                 )
@@ -539,10 +539,10 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             );
         }
         let sort_row = row![
-            ui::muted("Sort by", theme::TEXT_SM),
+            ui::muted("Sort by", theme::BODY),
             select(&SORT_FIELDS, find(&SORT_FIELDS, &st.sort_field), builtin, |f| sm(SMsg::SortField(f))),
             select(&SORT_DIRS, find(&SORT_DIRS, &st.sort_dir), builtin, |d| sm(SMsg::SortDir(d))),
-            ui::muted("Limit", theme::TEXT_SM),
+            ui::muted("Limit", theme::BODY),
             input("None", &st.limit, builtin, |s| sm(SMsg::Limit(s))).width(80),
         ]
         .spacing(12)
@@ -554,7 +554,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             let save = ui::label_button(
                 None,
                 if st.saving { "Saving…" } else { "Save" },
-                theme::TEXT_SM,
+                theme::BODY,
                 32.0,
                 16.0,
                 |th, s| {
@@ -565,19 +565,19 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                 can_save.then(|| sm(SMsg::Save)),
             );
             let del: Element<'_, Message> = if !st.confirm_delete {
-                button(text("Delete playlist").size(theme::TEXT_SM))
+                button(text("Delete playlist").size(theme::BODY))
                     .padding(0)
                     .style(theme::btn_text(k.muted_fg, k.destructive))
                     .on_press(sm(SMsg::AskDelete(true)))
                     .into()
             } else {
                 row![
-                    text("Delete?").size(theme::TEXT_SM).color(k.destructive),
-                    button(text("Yes").size(theme::TEXT_SM))
+                    text("Delete?").size(theme::BODY).color(k.destructive),
+                    button(text("Yes").size(theme::BODY))
                         .padding(0)
                         .style(theme::btn_text(k.destructive, a(k.destructive, 0.8)))
                         .on_press(sm(SMsg::Delete)),
-                    button(text("Cancel").size(theme::TEXT_SM))
+                    button(text("Cancel").size(theme::BODY))
                         .padding(0)
                         .style(theme::btn_link)
                         .on_press(sm(SMsg::AskDelete(false))),
@@ -606,7 +606,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                 button(
                     row![
                         ui::filled(ui::Filled::Play, 14.0, k2.primary_fg),
-                        text("Play all").size(theme::TEXT_SM)
+                        text("Play all").size(theme::BODY)
                     ]
                     .spacing(6)
                     .align_y(Alignment::Center),
@@ -619,7 +619,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                 })
                 .on_press(sm(SMsg::Play(0))),
                 button(
-                    row![icon(Icon::Shuffle, 14.0), text("Shuffle").size(theme::TEXT_SM)]
+                    row![icon(Icon::Shuffle, 14.0), text("Shuffle").size(theme::BODY)]
                         .spacing(6)
                         .align_y(Alignment::Center),
                 )
@@ -645,11 +645,11 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             let content = row![
                 art(tr.album_art_path.as_deref(), 36.0, theme::R_XS),
                 column![
-                    line(title).size(theme::TEXT_SM).width(Length::Fill),
-                    line(sub).size(theme::TEXT_XS).color(k.muted_fg).width(Length::Fill),
+                    line(title).size(theme::BODY).width(Length::Fill),
+                    line(sub).size(theme::SMALL).color(k.muted_fg).width(Length::Fill),
                 ]
                 .width(Length::Fill),
-                text(duration(tr.duration_ms)).size(theme::TEXT_XS).color(k.muted_fg),
+                text(duration(tr.duration_ms)).size(theme::SMALL).color(k.muted_fg),
             ]
             .spacing(12)
             .align_y(Alignment::Center);
@@ -658,6 +658,14 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                     .width(Length::Fill)
                     .padding(Padding::from([6.0, 8.0]))
                     .on_double_click(sm(SMsg::Play(i)))
+                    .on_right_press(crate::components::context_menu::opener(
+                        crate::components::context_menu::Target::Track {
+                            id: tr.id,
+                            album: tr.album_name.clone(),
+                            artists: tr.artists.clone(),
+                            playlist: None,
+                        },
+                    ))
                     .style(|s| iced::widget::container::Style {
                         background: s.hovered.then(|| a(t().muted, 0.3).into()),
                         border: theme::no_border(theme::R_MD),

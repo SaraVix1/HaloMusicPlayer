@@ -10,7 +10,7 @@ use iced::keyboard::{self, key, Key, Modifiers};
 use iced::widget::{column, container, mouse_area, row, stack};
 use iced::{event, mouse, window, Element, Length, Point, Size, Subscription, Task, Theme};
 
-use crate::components::{lyrics, mini, now_playing, palette, sidebar, title_bar};
+use crate::components::{context_menu, drop, fullscreen, lyrics, mini, now_playing, palette, sidebar, title_bar, queue_panel};
 use crate::pages;
 use crate::route::{History, Route};
 use crate::theme;
@@ -51,6 +51,12 @@ pub fn fire(
 #[derive(Debug, Clone)]
 pub enum Message {
     Noop,
+    /// Accent picked from a track's art (track id, colour or none).
+    AccentPicked(Option<i64>, Option<iced::Color>),
+    /// Redraw tick while a cover / accent fade runs.
+    FadeTick,
+    /// Cover thumbnails finished: redraw to show them (`thumbs`).
+    ThumbsReady,
     Error(String),
     /// Several messages handled in order.
     Batch(Vec<Message>),
@@ -84,6 +90,10 @@ pub enum Message {
     Player(PlayerCmd),
 
     NowPlaying(now_playing::Msg),
+    Fullscreen(fullscreen::Msg),
+    QueuePanel(queue_panel::Msg),
+    Context(context_menu::Msg),
+    Drop(drop::Msg),
     Mini(mini::Msg),
     Lyrics(lyrics::Msg),
     Palette(palette::Msg),
@@ -115,6 +125,12 @@ pub struct Halo {
     pub mini_id: Option<window::Id>,
 
     pub theme_pref: String,
+    /// Settings → Appearance → "Accent from album art".
+    pub accent_from_art: bool,
+    /// Settings → Appearance → Renderer (saved; applies at next launch).
+    pub renderer: crate::renderer::Renderer,
+    /// Cover cross-fade and accent glide on song change.
+    pub fades: crate::fade::Fades,
     pub system_mode: iced::theme::Mode,
 
     pub player: FullPlayerState,
@@ -123,6 +139,10 @@ pub struct Halo {
     pub now_playing: now_playing::State,
     pub mini: mini::State,
     pub lyrics: lyrics::State,
+    pub fullscreen: fullscreen::State,
+    pub queue_panel: queue_panel::State,
+    pub context: context_menu::State,
+    pub drop: drop::State,
     pub palette: palette::State,
     pub pages: pages::Pages,
     media_started: bool,
@@ -168,8 +188,12 @@ pub fn main_window_settings() -> window::Settings {
     }
 }
 
+/// `app_state` key for Settings → Appearance → "Accent from album art".
+pub const ACCENT_PREF: &str = "ui.accent_from_art";
+
 impl Halo {
     pub fn new(backend: Backend) -> (Self, Task<Message>) {
+        halo_backend::profile::mark("Halo::new");
         let theme_pref = backend.initial_theme().to_string();
         let player = commands::player::get_player_state(backend.clone()).unwrap_or_else(|_| empty_state());
         let (main_id, open) = window::open(main_window_settings());
@@ -180,19 +204,35 @@ impl Halo {
             main_visible: true,
             mini_id: None,
             theme_pref,
+            fades: crate::fade::Fades::default(),
+            accent_from_art: commands::ui::get_pref(ACCENT_PREF.into(), backend.db())
+                .ok()
+                .flatten()
+                .as_deref()
+                != Some("false"),
+            renderer: crate::renderer::Renderer::from_pref(
+                commands::ui::get_pref(crate::renderer::PREF.into(), backend.db()).ok().flatten().as_deref(),
+            ),
             system_mode: iced::theme::Mode::Dark,
             player,
             history: History::default(),
             now_playing: now_playing::State::default(),
             mini: mini::State::default(),
             lyrics: lyrics::State::default(),
+            fullscreen: fullscreen::State::default(),
+            queue_panel: queue_panel::State::default(),
+            context: context_menu::State::default(),
+            drop: drop::State::default(),
             palette: palette::State::default(),
-            pages: pages::Pages::default(),
+            pages: pages::Pages {
+                library: pages::library::LibraryState::new(&backend),
+                ..Default::default()
+            },
             media_started: false,
         };
         app.apply_theme();
         let track_task = app.on_track_changed();
-        let page_task = pages::on_enter(&mut app);
+        let page_task = Task::batch([pages::on_enter(&mut app), pages::load_library_count(&app)]);
         (
             app,
             Task::batch([
@@ -218,12 +258,15 @@ impl Halo {
         self.apply_theme();
     }
 
-    fn apply_theme(&self) {
-        let dark = match self.theme_pref.as_str() {
-            "light" => false,
-            "system" => self.system_mode != iced::theme::Mode::Light,
-            _ => true,
-        };
+    /// Light / dark from the preference; always dark while full-screen now
+    /// playing is open (light text over the darkened art).
+    pub fn apply_theme(&self) {
+        let dark = self.fullscreen.open
+            || match self.theme_pref.as_str() {
+                "light" => false,
+                "system" => self.system_mode != iced::theme::Mode::Light,
+                _ => true,
+            };
         theme::set_dark(dark);
     }
 
@@ -242,15 +285,51 @@ impl Halo {
     /// Track changed → refetch waveform, Last.fm loved state, lyrics.
     fn on_track_changed(&mut self) -> Task<Message> {
         let id = self.player.current_track.as_ref().map(|t| t.track_id);
+        let art = self.player.current_track.as_ref().and_then(|t| t.album_art_path.clone());
+        self.fades.set_art(art);
         Task::batch([
             now_playing::on_track(self, id),
             lyrics::on_track(self, id),
+            fullscreen::on_track(self),
+            self.refresh_accent(),
         ])
     }
 
+    /// Pick the accent from the current track's art (off the UI thread), or
+    /// use Halo's default when there's no art or the setting is off.
+    pub fn refresh_accent(&mut self) -> Task<Message> {
+        let cur = self.player.current_track.as_ref();
+        let art = cur.and_then(|t| t.album_art_path.clone()).filter(|p| !p.is_empty());
+        match art {
+            Some(path) if self.accent_from_art => {
+                let id = cur.map(|t| t.track_id);
+                bg(&self.backend, move |_| crate::accent::from_path(&path), move |c| Message::AccentPicked(id, c))
+            }
+            _ => {
+                self.fades.set_accent(theme::DEFAULT_ACCENT);
+                Task::none()
+            }
+        }
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        if halo_backend::profile::enabled() {
+            profile_count(&message);
+        }
         match message {
             Message::Noop => Task::none(),
+            Message::AccentPicked(id, c) => {
+                // Ignore a late result for a track that's no longer playing.
+                if self.accent_from_art && id == self.player.current_track.as_ref().map(|t| t.track_id) {
+                    self.fades.set_accent(c.unwrap_or(theme::DEFAULT_ACCENT));
+                }
+                Task::none()
+            }
+            Message::ThumbsReady => Task::none(),
+            Message::FadeTick => {
+                self.fades.tick();
+                Task::none()
+            }
             Message::Error(e) => {
                 eprintln!("error: {e}");
                 Task::none()
@@ -263,8 +342,11 @@ impl Halo {
             Message::Navigate(route) => {
                 let prev = self.route().clone();
                 self.lyrics.open = false;
+                // e.g. a Ctrl+K result picked over full-screen now playing.
+                let leave = fullscreen::update(self, fullscreen::Msg::Close);
+                context_menu::close(self);
                 self.history.push(route);
-                pages::on_navigate(self, prev)
+                Task::batch([leave, pages::on_navigate(self, prev)])
             }
             Message::ReplaceRoute(route) => {
                 let prev = self.route().clone();
@@ -291,12 +373,18 @@ impl Halo {
             }
 
             Message::WindowOpened(id) => {
-                if Some(id) == self.main_id && !self.media_started {
+                halo_backend::profile::mark("main window opened");
+                if Some(id) != self.main_id {
+                    return Task::none();
+                }
+                let icon = exe_icon(id);
+                if !self.media_started {
                     self.media_started = true;
                     tray::create();
-                    return self.start_media_controls(id);
+                    halo_backend::profile::mark("tray created");
+                    return Task::batch([icon, self.start_media_controls(id)]);
                 }
-                Task::none()
+                icon
             }
             Message::WindowEvent(id, ev) => self.on_window_event(id, ev),
             Message::CloseRequested(id) => {
@@ -355,6 +443,10 @@ impl Halo {
 
             Message::Player(cmd) => self.player_cmd(cmd),
             Message::NowPlaying(m) => now_playing::update(self, m),
+            Message::Fullscreen(m) => fullscreen::update(self, m),
+            Message::QueuePanel(m) => queue_panel::update(self, m),
+            Message::Context(m) => context_menu::update(self, m),
+            Message::Drop(m) => drop::update(self, m),
             Message::Mini(m) => mini::update(self, m),
             Message::Lyrics(m) => lyrics::update(self, m),
             Message::Palette(m) => palette::update(self, m),
@@ -367,13 +459,18 @@ impl Halo {
             BackendEvent::PlayerState(s) => {
                 let prev_track = self.player.current_track.as_ref().map(|t| t.track_id);
                 let prev_len = self.player.queue_length;
+                let prev_shuffle = self.player.shuffle;
                 self.player = *s;
                 let mut tasks = vec![];
+                // Up next depends on the track, the queue and the shuffle order.
+                if self.player.current_track.as_ref().map(|t| t.track_id) != prev_track
+                    || self.player.queue_length != prev_len
+                    || self.player.shuffle != prev_shuffle
+                {
+                    tasks.push(queue_panel::on_player_changed(self));
+                }
                 if self.player.current_track.as_ref().map(|t| t.track_id) != prev_track {
                     tasks.push(self.on_track_changed());
-                }
-                if self.player.queue_length != prev_len {
-                    tasks.push(pages::on_queue_changed(self));
                 }
                 tasks.push(lyrics::on_position(self));
                 Task::batch(tasks)
@@ -384,15 +481,15 @@ impl Halo {
                 Task::none()
             }
             BackendEvent::RaiseMain => self.show_main(),
-            BackendEvent::RevealMain => {
-                if self.mini_id.is_some() {
-                    Task::none()
-                } else {
-                    self.show_main()
-                }
-            }
+            // Files opened from the OS: bring Halo forward, keeping the mini
+            // player if that's what's showing (one window at a time).
+            BackendEvent::RevealMain => match self.mini_id {
+                Some(id) => window::gain_focus(id),
+                None => self.show_main(),
+            },
             BackendEvent::LibraryChanged => {
                 crate::ui::invalidate_art_cache();
+                crate::thumbs::invalidate();
                 pages::on_library_changed(self)
             }
             BackendEvent::ScanProgress(p) => pages::on_scan_progress(self, p),
@@ -474,6 +571,9 @@ impl Halo {
             if cmd && matches!(&key, Key::Character(c) if c.eq_ignore_ascii_case("m")) {
                 return self.restore_main();
             }
+            if crate::shortcuts::shortcut(&key, mods) == Some(crate::shortcuts::Shortcut::TogglePlay) {
+                return self.update(Message::Player(PlayerCmd::TogglePlay));
+            }
             return Task::none();
         }
         match &key {
@@ -481,8 +581,22 @@ impl Halo {
                 palette::toggle(self)
             }
             Key::Character(c) if cmd && c.eq_ignore_ascii_case("m") => self.open_mini(),
+            Key::Named(key::Named::Escape) if drop::is_open(self) => self.update(Message::Drop(drop::Msg::Cancel)),
+            Key::Named(key::Named::Enter) if drop::is_open(self) && !self.palette.open => drop::on_enter(self),
+            Key::Named(key::Named::Escape) if context_menu::is_open(self) => {
+                self.update(Message::Context(context_menu::Msg::Close))
+            }
             Key::Named(key::Named::Escape) if self.palette.open => {
                 self.update(Message::Palette(palette::Msg::Close))
+            }
+            Key::Named(key::Named::Escape) if self.fullscreen.open && !pages::has_dialog(self) => {
+                self.update(Message::Fullscreen(fullscreen::Msg::Close))
+            }
+            Key::Named(key::Named::F11) if self.fullscreen.open => {
+                self.update(Message::Fullscreen(fullscreen::Msg::ToggleOsFullscreen))
+            }
+            Key::Named(key::Named::Escape) if self.queue_panel.open && !pages::has_dialog(self) => {
+                self.update(Message::QueuePanel(queue_panel::Msg::Close))
             }
             Key::Named(key::Named::Escape) => pages::on_escape(self),
             Key::Named(key::Named::ArrowUp) if self.palette.open => {
@@ -491,10 +605,30 @@ impl Halo {
             Key::Named(key::Named::ArrowDown) if self.palette.open => {
                 self.update(Message::Palette(palette::Msg::Move(1)))
             }
-            Key::Named(key::Named::Enter) if self.palette.open => {
-                self.update(Message::Palette(palette::Msg::Activate))
-            }
+            // Enter in the palette: its text field submits (Shift / Ctrl read
+            // from the palette's own modifier tracking).
+            Key::Named(key::Named::Enter) if self.palette.open => Task::none(),
             Key::Named(key::Named::Enter) if cmd => pages::on_ctrl_enter(self),
+            _ => match crate::shortcuts::shortcut(&key, mods) {
+                Some(s) => self.run_shortcut(s),
+                None => Task::none(),
+            },
+        }
+    }
+
+    fn run_shortcut(&mut self, s: crate::shortcuts::Shortcut) -> Task<Message> {
+        use crate::shortcuts::{seek_target, Shortcut};
+        let has_track = self.player.current_track.is_some();
+        match s {
+            Shortcut::TogglePlay => self.update(Message::Player(PlayerCmd::TogglePlay)),
+            Shortcut::Previous if has_track => self.update(Message::Player(PlayerCmd::Previous)),
+            Shortcut::Next if has_track => self.update(Message::Player(PlayerCmd::Next)),
+            Shortcut::Seek(delta) if has_track => {
+                let p = &self.player.player;
+                let to = seek_target(p.position_ms, p.duration_ms, delta);
+                self.update(Message::Player(PlayerCmd::Seek(to)))
+            }
+            Shortcut::Lyrics => lyrics::toggle(self),
             _ => Task::none(),
         }
     }
@@ -511,6 +645,9 @@ impl Halo {
                 Task::none()
             }
             window::Event::Closed if Some(id) == self.main_id => iced::exit(),
+            window::Event::FileHovered(_) if Some(id) == self.main_id => drop::update(self, drop::Msg::Hovered),
+            window::Event::FilesHoveredLeft if Some(id) == self.main_id => drop::update(self, drop::Msg::Left),
+            window::Event::FileDropped(p) if Some(id) == self.main_id => drop::update(self, drop::Msg::Dropped(p)),
             _ => Task::none(),
         }
     }
@@ -520,7 +657,8 @@ impl Halo {
         {
             let backend = self.backend.clone();
             window::run(id, move |w| {
-                use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                // `window_handle()` comes with iced's `Window` trait.
+                use raw_window_handle::RawWindowHandle;
                 let hwnd = w.window_handle().ok().and_then(|h| match h.as_raw() {
                     RawWindowHandle::Win32(h) => Some(h.hwnd.get() as *mut std::ffi::c_void),
                     _ => None,
@@ -567,8 +705,9 @@ impl Halo {
     }
 
     pub fn open_mini(&mut self) -> Task<Message> {
+        let leave = fullscreen::update(self, fullscreen::Msg::Close);
         let open = mini::open(self);
-        Task::batch([open, self.hide_main()])
+        Task::batch([leave, open, self.hide_main()])
     }
 
     pub fn view(&self, id: window::Id) -> Element<'_, Message> {
@@ -576,19 +715,45 @@ impl Halo {
             return mini::view(self);
         }
         let main_id = id;
+        static FIRST_VIEW: std::sync::Once = std::sync::Once::new();
+        FIRST_VIEW.call_once(|| halo_backend::profile::mark("first view built"));
+        if self.fullscreen.open {
+            let mut layers = stack![fullscreen::view(self, title_bar::view(self, main_id))]
+                .width(Length::Fill)
+                .height(Length::Fill);
+            if let Some(overlay) = pages::overlay(self) {
+                layers = layers.push(overlay);
+            }
+            if self.palette.open {
+                layers = layers.push(palette::view(self));
+            }
+            if let Some(d) = drop::dialog(self) {
+                layers = layers.push(d);
+            }
+            if self.drop.hovering {
+                layers = layers.push(drop::overlay());
+            }
+            if let Some(menu) = context_menu::view(self) {
+                layers = layers.push(menu);
+            }
+            return layers.push(context_menu::probe()).push(resize_handles(main_id)).into();
+        }
         let content: Element<'_, Message> = if self.lyrics.open {
             lyrics::view(self)
         } else {
             pages::view(self)
         };
-        let body = row![
-            sidebar::view(self),
-            container(content)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .style(theme::page),
-        ]
-        .height(Length::Fill);
+        let page = container(content)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(theme::page);
+        // The queue panel slides in over the page, right edge.
+        let page: Element<'_, Message> = if queue_panel::visible(self) {
+            stack![page, queue_panel::view(self)].width(Length::Fill).height(Length::Fill).into()
+        } else {
+            page.into()
+        };
+        let body = row![sidebar::view(self), page].height(Length::Fill);
 
         let shell = column![title_bar::view(self, main_id), body, now_playing::view(self)]
             .width(Length::Fill)
@@ -603,6 +768,16 @@ impl Halo {
         if self.palette.open {
             layers = layers.push(palette::view(self));
         }
+        if let Some(d) = drop::dialog(self) {
+            layers = layers.push(d);
+        }
+        if self.drop.hovering {
+            layers = layers.push(drop::overlay());
+        }
+        if let Some(menu) = context_menu::view(self) {
+            layers = layers.push(menu);
+        }
+        layers = layers.push(context_menu::probe());
         layers = layers.push(resize_handles(main_id));
         layers.into()
     }
@@ -612,17 +787,15 @@ impl Halo {
             Subscription::run_with(BackendStream(self.backend.clone()), backend_events)
                 .map(Message::Backend),
             window::close_requests().map(Message::CloseRequested),
+            Subscription::run(crate::thumbs::events).map(|()| Message::ThumbsReady),
             window::events().map(|(id, e)| Message::WindowEvent(id, e)),
             iced::system::theme_changes().map(Message::SystemTheme),
             tray::events().map(Message::Tray),
             event::listen_with(|e, status, id| match e {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-                    let has_cmd = modifiers.command() || modifiers.control();
-                    // Shortcuts with Ctrl/Cmd fire even from text fields;
-                    // plain keys only when nothing captured them.
-                    // Escape always (closes dialogs / palette from inputs).
-                    let escape = matches!(key, Key::Named(key::Named::Escape));
-                    (has_cmd || escape || status == event::Status::Ignored)
+                    // Ctrl shortcuts and Esc even from text fields; plain keys
+                    // (and Ctrl+arrows) only when nothing used them.
+                    crate::shortcuts::deliver(&key, modifiers, status == event::Status::Captured)
                         .then_some(Message::Key(key, modifiers, id))
                 }
                 _ => None,
@@ -635,6 +808,18 @@ impl Halo {
             subs.push(s);
         }
         if let Some(s) = mini::subscription(self) {
+            subs.push(s);
+        }
+        if let Some(s) = queue_panel::subscription(self) {
+            subs.push(s);
+        }
+        if let Some(s) = palette::subscription(self) {
+            subs.push(s);
+        }
+        if let Some(s) = crate::fade::subscription(&self.fades) {
+            subs.push(s);
+        }
+        if let Some(s) = fullscreen::subscription(self) {
             subs.push(s);
         }
         Subscription::batch(subs)
@@ -713,3 +898,52 @@ fn backend_events(b: &BackendStream) -> impl iced::futures::Stream<Item = Backen
 
 #[allow(dead_code)]
 fn _unused(_: Point, _: Duration) {}
+
+/// Windows: give the main window the exe's multi-size `.ico` (crisp taskbar
+/// and Alt+Tab icon at any display scale) instead of iced's single RGBA
+/// icon, which Windows rescales. No-op elsewhere.
+fn exe_icon(id: window::Id) -> Task<Message> {
+    #[cfg(windows)]
+    {
+        window::run(id, |w| {
+            // `window_handle()` comes with iced's `Window` trait.
+            use raw_window_handle::RawWindowHandle;
+            if let Ok(RawWindowHandle::Win32(h)) = w.window_handle().map(|h| h.as_raw()) {
+                halo_backend::platform::set_window_icon_from_exe(h.hwnd.get() as *mut std::ffi::c_void);
+            }
+        })
+        .discard()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = id;
+        Task::none()
+    }
+}
+
+/// HALO_PROFILE: every 5 s, print how many messages of each kind arrived
+/// (finds what keeps an idle app busy).
+fn profile_count(m: &Message) {
+    use std::collections::BTreeMap;
+    use std::sync::Mutex;
+    use std::time::Instant;
+    static STATE: Mutex<Option<(Instant, BTreeMap<String, u32>)>> = Mutex::new(None);
+    // `Kind`, or `Backend::Kind` / `Page::Kind`.
+    let head = |s: String| s.split(['(', ' ', '{']).next().unwrap_or("").to_string();
+    let mut key = head(format!("{m:?}"));
+    match m {
+        Message::Backend(b) => key = format!("{key}::{}", head(format!("{b:?}"))),
+        Message::Page(p) => key = format!("{key}::{}", head(format!("{p:?}"))),
+        _ => {}
+    }
+    let mut g = STATE.lock().unwrap();
+    let (start, counts) = g.get_or_insert_with(|| (Instant::now(), BTreeMap::new()));
+    *counts.entry(key).or_default() += 1;
+    if start.elapsed().as_secs() >= 5 {
+        let total: u32 = counts.values().sum();
+        let list: Vec<String> = counts.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        eprintln!("[profile] messages/5s: {total}  {}", list.join(" "));
+        *g = None;
+    }
+}
+

@@ -1,14 +1,19 @@
 // Prevents an additional console window on Windows in release.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod accent;
 mod app;
+mod fade;
 mod components;
 mod format;
 mod icons;
 mod pages;
+mod renderer;
 mod route;
+mod shortcuts;
 mod single_instance;
 mod theme;
+mod thumbs;
 mod tray;
 mod ui;
 mod widgets;
@@ -48,6 +53,27 @@ fn prefer_x11() {
     std::env::remove_var("WAYLAND_SOCKET");
 }
 
+/// Let wgpu use one backend: Vulkan on Linux, DirectX 12 on Windows. iced
+/// asks for every compiled-in backend, so OpenGL (and on Windows Vulkan)
+/// were initialised as well, for nothing. Linux, measured back to back
+/// (GTX 1660, Debian 13): ~450 → ~375 ms to the first window, 211 → 187 MB.
+/// Windows is not measured yet. Without that backend iced falls back to its
+/// software renderer (unless `ICED_BACKEND` forces wgpu). macOS builds only
+/// Metal, so nothing to do there. An explicit `WGPU_BACKEND` wins. Must run
+/// before any thread starts (it changes the environment).
+fn prefer_one_gpu_backend() {
+    let backend = if cfg!(target_os = "linux") {
+        "vulkan"
+    } else if cfg!(windows) {
+        "dx12"
+    } else {
+        return;
+    };
+    if std::env::var_os("WGPU_BACKEND").is_none() {
+        std::env::set_var("WGPU_BACKEND", backend);
+    }
+}
+
 /// Open a URL in the default browser. On Linux the browser gets the
 /// session's `WAYLAND_DISPLAY` back (see [`prefer_x11`]).
 pub fn open_url(url: &str) -> std::io::Result<()> {
@@ -67,15 +93,24 @@ pub fn open_url(url: &str) -> std::io::Result<()> {
 }
 
 fn main() -> iced::Result {
+    halo_backend::mem::limit_arenas(); // before any thread starts
+    halo_backend::profile::start();
     #[cfg(target_os = "linux")]
     prefer_x11();
-    halo_backend::platform::set_app_user_model_id();
+    prefer_one_gpu_backend();
+    renderer::apply_saved();
 
     // A second launch hands its argv (files to open) to the running Halo
-    // and exits.
-    if single_instance::forward_to_running() {
-        return Ok(());
-    }
+    // and exits. Claimed before the backend starts, so launches racing a
+    // starting Halo wait for it instead of starting copies; before the
+    // AUMID setup, so a forwarding launch exits as fast as it can.
+    let primary = match single_instance::claim() {
+        single_instance::Claim::Forwarded => return Ok(()),
+        single_instance::Claim::Primary(p) => Some(p),
+        single_instance::Claim::Unguarded => None,
+    };
+    halo_backend::profile::mark("single-instance check");
+    halo_backend::platform::set_app_user_model_id();
 
     let backend = match Backend::start() {
         Ok(b) => b,
@@ -84,7 +119,10 @@ fn main() -> iced::Result {
             std::process::exit(1);
         }
     };
-    single_instance::listen(backend.clone());
+    if let Some(primary) = primary {
+        primary.attach(backend.clone());
+    }
+    thumbs::init(&backend.path().cache_dir);
 
     // Launched with audio files (double-click / "Open with Halo"): play
     // those instead of resuming the previous session.
@@ -94,6 +132,7 @@ fn main() -> iced::Result {
         halo_backend::open_files::paths_from_args(&argv, &cwd)
     };
     backend.handle_launch_files(launch_files);
+    halo_backend::profile::mark("launch files / resume");
 
     let mut daemon = iced::daemon(
         move || app::Halo::new(backend.clone()),
@@ -108,5 +147,6 @@ fn main() -> iced::Result {
     for font in theme::FONT_BYTES {
         daemon = daemon.font(*font);
     }
+    halo_backend::profile::mark("iced daemon starting (fonts loaded)");
     daemon.run()
 }

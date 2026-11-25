@@ -6,20 +6,20 @@ use iced::widget::{button, center, column, container};
 use iced::{Alignment, Element, Length, Padding, Task};
 
 use super::common::GridSpec;
-use super::library::{coll_grid, standalone};
+use super::library::coll_grid;
 use super::Msg;
 use crate::app::{bg, Halo, Message};
 use crate::format::plural;
 use crate::icons::{icon, Icon};
 use crate::route::Route;
-use crate::theme::{self, a, t};
+use crate::theme::{self, t};
 use crate::ui::art_sized;
 use crate::widgets::{line, surface};
 
 const ALBUMS: GridSpec = GridSpec {
     min_item_width: 160.0,
     row_height: 240.0,
-    gap: 20.0,
+    gap: 24.0,
     px: 24.0,
     padding_top: 0.0,
     padding_bottom: 24.0,
@@ -67,7 +67,7 @@ pub fn play_album(app: &Halo, name: String) -> Task<Message> {
 
 
 
-fn album_card(al: &Album, side: f32) -> Element<'_, Message> {
+pub(crate) fn album_card(al: &Album, side: f32) -> Element<'_, Message> {
     let k = t();
     let name = al.name.clone();
     let sub = if al.album_artists.is_empty() {
@@ -75,22 +75,7 @@ fn album_card(al: &Album, side: f32) -> Element<'_, Message> {
     } else {
         al.album_artists.join(", ")
     };
-    let cover = surface(art_sized(
-        al.album_art_path.as_deref(),
-        Length::Fill,
-        Length::Fill,
-        160.0,
-        theme::R_MD,
-    ))
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .on_press(Message::Navigate(album_route(&name)))
-    .interaction(iced::mouse::Interaction::Pointer)
-    .style(|s| iced::widget::container::Style {
-        // group-hover:opacity-80 — veil with the page background.
-        background: s.hovered.then(|| a(t().background, 0.2).into()),
-        ..Default::default()
-    });
+    let cover = art_sized(al.album_art_path.as_deref(), Length::Fill, Length::Fill, 160.0, theme::R_LG);
     let play_btn = button(
         center(container(icon(Icon::Play, 16.0)).padding(Padding::ZERO.left(2.0)))
             .width(40)
@@ -114,34 +99,41 @@ fn album_card(al: &Album, side: f32) -> Element<'_, Message> {
         container(cover).width(Length::Fill).height(Length::Fill),
         container(play_layer).width(Length::Fill).height(Length::Fill),
     );
-    // aspect-square: the art is as tall as the column is wide.
-    let art_box = container(art_box).width(Length::Fill).height(side);
-    column![
+    // aspect-square: the art is as tall as the card's inner width.
+    let art_box = container(art_box).width(Length::Fill).height((side - 2.0 * theme::CARD_PAD).max(0.0));
+    let content = column![
         art_box,
         column![
-            button(line(al.name.clone()).size(theme::TEXT_SM).font(theme::MEDIUM))
-                .padding(0)
-                .style(theme::btn_text(k.foreground, k.foreground))
-                .on_press(Message::Navigate(album_route(&name))),
-            line(sub).size(theme::TEXT_XS).color(k.muted_fg).width(Length::Fill),
+            line(al.name.clone()).size(theme::BODY).font(theme::MEDIUM).width(Length::Fill),
+            line(sub).size(theme::SMALL).color(k.muted_fg).width(Length::Fill),
         ]
         .spacing(0),
     ]
-    .spacing(8)
-    .into()
+    .spacing(8);
+    // The whole card highlights on hover (like song rows) and opens the
+    // album; the ▶ button still plays it.
+    surface(content)
+        .width(Length::Fill)
+        .padding(theme::CARD_PAD)
+        .on_press(Message::Navigate(album_route(&name)))
+        .on_right_press(crate::components::context_menu::opener(
+            crate::components::context_menu::Target::Album { name: name.clone(), artists: al.album_artists.clone() },
+        ))
+        .interaction(iced::mouse::Interaction::Pointer)
+        .style(|s| theme::card(s.hovered))
+        .into()
 }
 
-pub fn view(app: &Halo) -> Element<'_, Message> {
-    let c = &app.pages.library.albums;
-    let grid = coll_grid(
-        c,
-        "No albums yet — scan a folder to populate the library.",
+/// Albums grid (the Library page's Albums tab).
+pub fn grid(app: &Halo, key: String, padding_top: Option<f32>) -> Element<'_, Message> {
+    coll_grid(
+        &app.pages.library.albums,
+        crate::pages::common::empty_or_note(app, "No albums yet."),
         ALBUMS,
-        app.route().scroll_key(),
+        key,
         &app.pages.scroll,
-        Some(0.0),
+        padding_top,
         |al: &Album, w| album_card(al, w.min(196.0)),
-    );
-    standalone(app, "Albums", c.items.len(), "album", "albums", grid)
+    )
 }
 
