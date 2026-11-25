@@ -29,3 +29,10 @@ codegen-units = 256   # max parallelism during codegen
 # This only affects dependency crates, not your own code.
 [profile.dev.package."*"]
 opt-level = 1
+
+# Smaller, faster release builds (Task 6).
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+

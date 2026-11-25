@@ -323,6 +323,7 @@ impl Backend {
                 let mut last_status: Option<audio::PlaybackStatus> = None;
                 let mut last_device: String = String::new();
                 let mut tick_count: u64 = 0;
+                let mut last_snapshot = String::new();
                 loop {
                     std::thread::sleep(Duration::from_millis(250));
                     commands::sleep_timer::tick(&app);
@@ -376,7 +377,13 @@ impl Backend {
                         &mut last_status,
                         tick_count,
                     );
-                    app.emit(BackendEvent::PlayerState(Box::new(state)));
+                    // Only when something changed: an unchanged state (paused,
+                    // stopped, idle) used to redraw the whole UI 4×/s.
+                    let snapshot = serde_json::to_string(&state).unwrap_or_default();
+                    if snapshot != last_snapshot {
+                        last_snapshot = snapshot;
+                        app.emit(BackendEvent::PlayerState(Box::new(state)));
+                    }
                     tick_count = tick_count.wrapping_add(1);
                 }
             })
