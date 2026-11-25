@@ -1,7 +1,7 @@
-//! Icon-only navigation rail (`sidebar.tsx`): Search, All Songs, Albums,
-//! Library, Folders, Playlists, Queue; Settings pinned to the bottom.
+//! Icon-only navigation rail: Home, Library, Playlists, Search (opens the
+//! Ctrl+K palette) and, until the queue panel replaces it, Queue; Settings
+//! pinned to the bottom. Labels show as tooltips.
 
-use halo_backend::commands::library::TracksQuery;
 use iced::widget::{button, column, container, row, tooltip::Position};
 use iced::{Alignment, Element, Length, Padding};
 
@@ -23,21 +23,13 @@ fn nav_button<'a>(i: Icon, label: &'static str, active: bool, msg: Message) -> E
 pub fn view(app: &Halo) -> Element<'_, Message> {
     let section = app.route().section();
     type Item = (Icon, &'static str, Option<(Section, Route)>);
-    let items: [Item; 7] = [
-        (Icon::Search, "Search (Ctrl+K)", None),
-        (
-            Icon::Music,
-            "All Songs",
-            Some((Section::Songs, Route::Songs(TracksQuery::default()))),
-        ),
-        (Icon::Disc, "Albums", Some((Section::Albums, Route::Albums))),
+    let items: [Item; 5] = [
+        (Icon::House, "Home", Some((Section::Home, Route::Home))),
+        // Library(None) opens the last visited tab.
         (Icon::Library, "Library", Some((Section::Library, Route::Library(None)))),
-        (Icon::Folder, "Folders", Some((Section::Folders, Route::Folders))),
-        (
-            Icon::ListMusic,
-            "Playlists",
-            Some((Section::Playlists, Route::Playlists)),
-        ),
+        (Icon::ListMusic, "Playlists", Some((Section::Playlists, Route::Playlists))),
+        (Icon::Search, "Search (Ctrl+K)", None),
+        // TODO(5d): replaced by the slide-in queue panel (≡ in the now-playing bar).
         (Icon::ListOrdered, "Queue", Some((Section::Queue, Route::Queue))),
     ];
 

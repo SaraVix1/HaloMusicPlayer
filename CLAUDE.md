@@ -47,7 +47,7 @@ crates/
 ├── halo-core/                  # Pure domain logic — no I/O, no UI, no rodio (queue/shuffle/repeat, play &
 │                               # scrobble thresholds, NowPlayingController trait, RemoteCommand) + tests
 ├── halo-backend/               # Everything except the UI (lib crate)
-│   ├── migrations/*.sql        # 001–010, wired by hand in db/migrations.rs
+│   ├── migrations/*.sql        # 001–011, wired by hand in db/migrations.rs
 │   └── src/
 │       ├── backend.rs          # Backend service container (Arc<Inner>): DB, PlayerHandle, ShuffleState,
 │       │                       # SleepTimer, LastFmState, OpenFilesState, FolderWatcher, media controls,
@@ -86,14 +86,18 @@ crates/
         ├── single_instance.rs  # local socket: forward argv/cwd to the running instance
         ├── widgets/            # custom widgets: textline (ellipsis/marquee), surface (hover/click
         │                       # container), popover (anchored overlay), waveform (seek bar)
-        ├── components/         # shell pieces: title_bar, sidebar, now_playing (+ sleep timer),
+        ├── components/         # shell pieces: title_bar, sidebar (Home, Library, Playlists, Search,
+        │                       # Queue; Settings), now_playing (+ sleep timer),
         │                       # palette (Ctrl+K), lyrics (panel), mini (mini-player window)
         └── pages/              # ONE FILE PER PAGE / TAB
             ├── mod.rs          # Pages state, page Msg, route dispatch, load-on-enter, refresh hooks
             ├── common.rs       # virtual list/grid, scroll memory, page header helpers
+            ├── home.rs         # start page: greeting + album rows (recently played / most played /
+            │                   # recently added, `get_home_shelves`)
             ├── tracks.rs       # shared track table (Songs / Recently Played / Most Played)
             ├── songs.rs  recently_played.rs  most_played.rs  albums.rs  folders.rs  queue.rs
-            ├── library/        # mod.rs (tabs page) + cards.rs + artists, album_artists, composers,
+            ├── library/        # mod.rs (tabs page: Songs | Albums | Artists | … | Folders; Songs,
+            │                   # Albums, Folders keep their own routes) + cards.rs + artists, album_artists, composers,
             │                   # genres, years (each also backs its standalone route)
             ├── playlists.rs  playlist_detail.rs  smart_playlist.rs
             ├── settings/       # mod.rs (nav + row helpers) + general, appearance, playback,

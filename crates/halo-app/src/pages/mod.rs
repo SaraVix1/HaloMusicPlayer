@@ -2,7 +2,8 @@
 //!
 //! | Route | File |
 //! |---|---|
-//! | All Songs | `songs.rs` (table: `tracks.rs`) |
+//! | Home | `home.rs` |
+//! | All Songs (Library → Songs tab) | `songs.rs` (table: `tracks.rs`) |
 //! | Recently Played | `recently_played.rs` |
 //! | Most Played | `most_played.rs` |
 //! | Albums | `albums.rs` |
@@ -22,6 +23,7 @@ pub mod albums;
 pub mod common;
 pub mod dialogs;
 pub mod folders;
+pub mod home;
 pub mod library;
 pub mod metadata;
 pub mod most_played;
@@ -46,6 +48,7 @@ use crate::route::{LibraryTab, Route};
 #[derive(Default)]
 pub struct Pages {
     pub scroll: common::ScrollMemory,
+    pub home: home::HomeState,
     pub songs: tracks::TrackList,
     pub songs_query: Option<TracksQuery>,
     pub recent: tracks::TrackList,
@@ -65,6 +68,7 @@ pub enum Msg {
     Scrolled(String, f32, f32),
     StarHover(Option<(i64, u8)>),
 
+    HomeLoaded(Result<halo_backend::commands::library::HomeShelves, String>),
     SongsLoaded(TracksQuery, Result<Vec<Track>, String>),
     RecentLoaded(Result<Vec<Track>, String>),
     MostLoaded(Result<Vec<Track>, String>),
@@ -106,6 +110,10 @@ pub fn update(app: &mut Halo, msg: Msg) -> Task<Message> {
             Task::none()
         }
 
+        Msg::HomeLoaded(r) => {
+            home::on_loaded(app, r);
+            Task::none()
+        }
         Msg::SongsLoaded(q, r) => {
             // Ignore stale responses for a previous filter / sort.
             if let Route::Songs(cur) = app.route() {
@@ -194,20 +202,33 @@ fn set_list(l: &mut tracks::TrackList, r: Result<Vec<Track>, String>) {
     }
 }
 
-/// Resolve "remembered tab" routes (`/library`, `/settings` without `?tab=`).
+/// Resolve "remembered tab" routes (`/library`, `/settings` without `?tab=`)
+/// and remember the Library tab being shown.
 fn normalize_route(app: &mut Halo) {
     match app.route().clone() {
         Route::Library(None) => {
-            let tab = app.pages.library.last_tab;
-            app.history.replace(Route::Library(Some(tab)));
+            let route = library::tab_route(app, app.pages.library.last_tab);
+            app.history.replace(route);
         }
-        Route::Library(Some(tab)) => app.pages.library.last_tab = tab,
+        // Tabs with their own routes.
+        Route::Library(Some(tab @ (LibraryTab::Songs | LibraryTab::Albums | LibraryTab::Folders))) => {
+            let route = library::tab_route(app, tab);
+            app.history.replace(route);
+        }
         Route::Settings(None) => {
             let tab = app.pages.settings.last_tab;
             app.history.replace(Route::Settings(Some(tab)));
         }
         Route::Settings(Some(tab)) => app.pages.settings.last_tab = tab,
         _ => {}
+    }
+    if let Some(tab) = app.route().library_tab() {
+        app.pages.library.last_tab = tab;
+    }
+    if let Route::Songs(q) = app.route() {
+        if crate::route::is_all_songs(q) {
+            app.pages.library.songs_query = q.clone();
+        }
     }
 }
 
@@ -217,11 +238,15 @@ pub fn on_enter(app: &mut Halo) -> Task<Message> {
     let route = app.route().clone();
     let restore = app.pages.scroll.restore(&scroll_key_for(app, &route));
     let load = match &route {
+        Route::Home => home::load(app),
         Route::Songs(q) => songs::load(app, q.clone()),
         Route::RecentlyPlayed => recently_played::load(app),
         Route::MostPlayed => most_played::load(app),
         Route::Albums => library::load(app, library::Kind::Albums),
-        Route::Library(Some(tab)) => library::load(app, (*tab).into()),
+        Route::Library(Some(tab)) => match library::Kind::of(*tab) {
+            Some(kind) => library::load(app, kind),
+            None => Task::none(),
+        },
         Route::Library(None) => Task::none(),
         Route::Artists => library::load(app, library::Kind::Artists),
         Route::AlbumArtists => library::load(app, library::Kind::AlbumArtists),
@@ -365,17 +390,25 @@ pub fn overlay(app: &Halo) -> Option<Element<'_, Message>> {
 
 pub fn view(app: &Halo) -> Element<'_, Message> {
     match app.route() {
+        Route::Home => home::view(app),
+        Route::Songs(q) if crate::route::is_all_songs(q) => {
+            library::tabbed(app, LibraryTab::Songs, songs::view(app, q))
+        }
         Route::Songs(q) => songs::view(app, q),
         Route::RecentlyPlayed => recently_played::view(app),
         Route::MostPlayed => most_played::view(app),
-        Route::Albums => albums::view(app),
-        Route::Library(tab) => library::view_library(app, tab.unwrap_or(LibraryTab::Artists)),
+        Route::Albums => library::tabbed(
+            app,
+            LibraryTab::Albums,
+            albums::grid(app, app.route().scroll_key(), None),
+        ),
+        Route::Library(tab) => library::view_library(app, tab.unwrap_or_default()),
         Route::Artists => library::artists::view(app),
         Route::AlbumArtists => library::album_artists::view(app),
         Route::Composers => library::composers::view(app),
         Route::Genres => library::genres::view(app),
         Route::Years => library::years::view(app),
-        Route::Folders => folders::view(app),
+        Route::Folders => library::tabbed(app, LibraryTab::Folders, folders::view(app)),
         Route::Queue => queue::view(app),
         Route::Playlists => playlists::view(app),
         Route::Playlist(_) => playlist_detail::view(app),

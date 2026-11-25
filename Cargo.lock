@@ -2076,6 +2076,7 @@ dependencies = [
  "halo-core",
  "hex",
  "image",
+ "libc",
  "lofty",
  "md5",
  "notify",

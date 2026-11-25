@@ -21,7 +21,7 @@ pub fn load(app: &mut Halo) -> Task<Message> {
 pub fn view(app: &Halo) -> Element<'_, Message> {
     tracks::page(
         app,
-        "Recently Played",
+        Some("Recently Played"),
         &app.pages.recent,
         Variant::Recent,
         None,

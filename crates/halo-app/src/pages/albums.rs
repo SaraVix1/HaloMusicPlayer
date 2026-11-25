@@ -6,7 +6,7 @@ use iced::widget::{button, center, column, container};
 use iced::{Alignment, Element, Length, Padding, Task};
 
 use super::common::GridSpec;
-use super::library::{coll_grid, standalone};
+use super::library::coll_grid;
 use super::Msg;
 use crate::app::{bg, Halo, Message};
 use crate::format::plural;
@@ -67,7 +67,7 @@ pub fn play_album(app: &Halo, name: String) -> Task<Message> {
 
 
 
-fn album_card(al: &Album, side: f32) -> Element<'_, Message> {
+pub(crate) fn album_card(al: &Album, side: f32) -> Element<'_, Message> {
     let k = t();
     let name = al.name.clone();
     let sub = if al.album_artists.is_empty() {
@@ -131,17 +131,16 @@ fn album_card(al: &Album, side: f32) -> Element<'_, Message> {
     .into()
 }
 
-pub fn view(app: &Halo) -> Element<'_, Message> {
-    let c = &app.pages.library.albums;
-    let grid = coll_grid(
-        c,
+/// Albums grid (the Library page's Albums tab).
+pub fn grid(app: &Halo, key: String, padding_top: Option<f32>) -> Element<'_, Message> {
+    coll_grid(
+        &app.pages.library.albums,
         "No albums yet — scan a folder to populate the library.",
         ALBUMS,
-        app.route().scroll_key(),
+        key,
         &app.pages.scroll,
-        Some(0.0),
+        padding_top,
         |al: &Album, w| album_card(al, w.min(196.0)),
-    );
-    standalone(app, "Albums", c.items.len(), "album", "albums", grid)
+    )
 }
 

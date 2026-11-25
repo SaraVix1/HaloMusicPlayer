@@ -361,9 +361,11 @@ pub fn play_buttons<'a>(ids: Vec<i64>) -> Element<'a, Message> {
 
 /// Page frame shared by the track-list pages: header with Play All /
 /// Shuffle Play + count, optional filter chips, then the table.
+/// Track list page. `title: None` leaves out the h1 (the Library page's
+/// Songs tab, whose title is the tab bar).
 pub fn page<'a>(
     app: &'a Halo,
-    title: &'a str,
+    title: Option<&'a str>,
     list: &'a TrackList,
     variant: Variant,
     q: Option<&TracksQuery>,
@@ -371,15 +373,13 @@ pub fn page<'a>(
 ) -> Element<'a, Message> {
     let current = app.player.current_track.as_ref().map(|t| t.track_id);
     let n = list.tracks.len();
-    let header = common::header(
-        title,
-        row![
-            play_buttons(list.ids()),
-            common::count(n, "track", "tracks"),
-        ]
+    let right = row![play_buttons(list.ids()), common::count(n, "track", "tracks")]
         .spacing(8)
-        .align_y(Alignment::Center),
-    );
+        .align_y(Alignment::Center);
+    let header: Element<'a, Message> = match title {
+        Some(title) => common::header(title, right),
+        None => row![crate::ui::fill(), right].align_y(Alignment::Center).into(),
+    };
     let mut col = column![header].spacing(16).height(Length::Fill);
     if let Some(c) = q.and_then(super::songs::chips) {
         col = col.push(c);
