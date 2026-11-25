@@ -70,6 +70,7 @@ pub fn open_url(url: &str) -> std::io::Result<()> {
 }
 
 fn main() -> iced::Result {
+    halo_backend::mem::limit_arenas(); // before any thread starts
     halo_backend::profile::start();
     #[cfg(target_os = "linux")]
     prefer_x11();
