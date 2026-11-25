@@ -906,7 +906,8 @@ fn exe_icon(id: window::Id) -> Task<Message> {
     #[cfg(windows)]
     {
         window::run(id, |w| {
-            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            // `window_handle()` comes with iced's `Window` trait.
+            use raw_window_handle::RawWindowHandle;
             if let Ok(RawWindowHandle::Win32(h)) = w.window_handle().map(|h| h.as_raw()) {
                 halo_backend::platform::set_window_icon_from_exe(h.hwnd.get() as *mut std::ffi::c_void);
             }
@@ -927,16 +928,14 @@ fn profile_count(m: &Message) {
     use std::sync::Mutex;
     use std::time::Instant;
     static STATE: Mutex<Option<(Instant, BTreeMap<String, u32>)>> = Mutex::new(None);
-    let name = format!("{m:?}");
-    let key: String = name.split(|c: char| c == '(' || c == ' ' || c == '{').take(1).collect::<String>()
-        + match m {
-            Message::Backend(b) => {
-                let d = format!("{b:?}");
-                Box::leak(format!("::{}", d.split(|c: char| c == '(' || c == ' ' || c == '{').next().unwrap_or("")).into_boxed_str())
-            }
-            Message::Page(p) => Box::leak(format!("::{}", format!("{p:?}").split('(').next().unwrap_or("")).into_boxed_str()),
-            _ => "",
-        };
+    // `Kind`, or `Backend::Kind` / `Page::Kind`.
+    let head = |s: String| s.split(['(', ' ', '{']).next().unwrap_or("").to_string();
+    let mut key = head(format!("{m:?}"));
+    match m {
+        Message::Backend(b) => key = format!("{key}::{}", head(format!("{b:?}"))),
+        Message::Page(p) => key = format!("{key}::{}", head(format!("{p:?}"))),
+        _ => {}
+    }
     let mut g = STATE.lock().unwrap();
     let (start, counts) = g.get_or_insert_with(|| (Instant::now(), BTreeMap::new()));
     *counts.entry(key).or_default() += 1;

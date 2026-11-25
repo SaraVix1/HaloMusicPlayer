@@ -13,14 +13,14 @@ use crate::theme::{self, t};
 
 #[derive(Debug, Clone)]
 pub enum Msg {
-    SetTheme(&'static str),
-    SetAccentFromArt(bool),
-    SetRenderer(Renderer),
+    Theme(&'static str),
+    AccentFromArt(bool),
+    Renderer(Renderer),
 }
 
 pub fn update(app: &mut Halo, m: Msg) -> Task<Message> {
     match m {
-        Msg::SetTheme(th) => {
+        Msg::Theme(th) => {
             app.set_theme_pref(th.to_string());
             bg(
                 &app.backend,
@@ -28,7 +28,7 @@ pub fn update(app: &mut Halo, m: Msg) -> Task<Message> {
                 done,
             )
         }
-        Msg::SetAccentFromArt(on) => {
+        Msg::AccentFromArt(on) => {
             app.accent_from_art = on;
             let save = bg(
                 &app.backend,
@@ -37,7 +37,7 @@ pub fn update(app: &mut Halo, m: Msg) -> Task<Message> {
             );
             Task::batch([save, app.refresh_accent()])
         }
-        Msg::SetRenderer(r) => {
+        Msg::Renderer(r) => {
             app.renderer = r;
             bg(&app.backend, move |b| ui::set_pref(renderer::PREF.into(), r.as_pref().into(), b.db()), done)
         }
@@ -49,14 +49,14 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         [("light", "Light", Icon::Sun), ("dark", "Dark", Icon::Moon), ("system", "System", Icon::Monitor)]
             .into_iter()
             .map(|(value, label, ic)| {
-                (label, Some(ic), app.theme_pref == value, msg(SMsg::Appearance(Msg::SetTheme(value))))
+                (label, Some(ic), app.theme_pref == value, msg(SMsg::Appearance(Msg::Theme(value))))
             })
             .collect(),
     );
     let render_seg = segmented(
         [(Renderer::Gpu, "GPU"), (Renderer::Software, "Software")]
             .into_iter()
-            .map(|(r, label)| (label, None, app.renderer == r, msg(SMsg::Appearance(Msg::SetRenderer(r)))))
+            .map(|(r, label)| (label, None, app.renderer == r, msg(SMsg::Appearance(Msg::Renderer(r)))))
             .collect(),
     );
     let render_desc = if app.renderer == renderer::at_launch() {
@@ -77,7 +77,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             "Tint buttons, progress and highlights with the current cover's colour. Off: Halo blue.",
             crate::ui::toggle(
                 app.accent_from_art,
-                msg(SMsg::Appearance(Msg::SetAccentFromArt(!app.accent_from_art))),
+                msg(SMsg::Appearance(Msg::AccentFromArt(!app.accent_from_art))),
             ),
         ),
         setting_row("Renderer", render_desc, render_seg),
