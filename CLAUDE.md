@@ -90,7 +90,9 @@ crates/
         │                       # Queue; Settings), now_playing (+ sleep timer), fullscreen (full-screen
         │                       # now playing: blurred art, cover, synced lyrics excerpt, transport),
         │                       # queue_panel (≡ "Up next": slide-in, real play order, drag / remove / clear),
-        │                       # palette (Ctrl+K), lyrics (panel), mini (mini-player window)
+        │                       # palette (Ctrl+K: multi-word ranked search, Top result, Enter =
+        │                       # play now keeping the queue via `player::insert_next`, recent searches),
+        │                       # lyrics (panel), mini (mini-player window)
         └── pages/              # ONE FILE PER PAGE / TAB
             ├── mod.rs          # Pages state, page Msg, route dispatch, load-on-enter, refresh hooks
             ├── common.rs       # virtual list/grid, scroll memory, page header helpers

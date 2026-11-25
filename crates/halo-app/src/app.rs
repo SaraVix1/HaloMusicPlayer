@@ -562,9 +562,9 @@ impl Halo {
             Key::Named(key::Named::ArrowDown) if self.palette.open => {
                 self.update(Message::Palette(palette::Msg::Move(1)))
             }
-            Key::Named(key::Named::Enter) if self.palette.open => {
-                self.update(Message::Palette(palette::Msg::Activate))
-            }
+            // Enter in the palette: its text field submits (Shift / Ctrl read
+            // from the palette's own modifier tracking).
+            Key::Named(key::Named::Enter) if self.palette.open => Task::none(),
             Key::Named(key::Named::Enter) if cmd => pages::on_ctrl_enter(self),
             _ => Task::none(),
         }
@@ -725,6 +725,9 @@ impl Halo {
             subs.push(s);
         }
         if let Some(s) = queue_panel::subscription(self) {
+            subs.push(s);
+        }
+        if let Some(s) = palette::subscription(self) {
             subs.push(s);
         }
         Subscription::batch(subs)
