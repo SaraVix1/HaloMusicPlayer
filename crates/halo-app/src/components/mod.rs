@@ -1,3 +1,4 @@
+pub mod fullscreen;
 pub mod lyrics;
 pub mod mini;
 pub mod now_playing;

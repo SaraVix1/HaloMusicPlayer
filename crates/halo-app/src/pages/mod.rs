@@ -340,6 +340,11 @@ pub fn on_rating_changed(app: &mut Halo, track_id: i64, rating: i64) -> Task<Mes
     Task::none()
 }
 
+/// A dialog (add to playlist, confirm, metadata editor) is open.
+pub fn has_dialog(app: &Halo) -> bool {
+    app.pages.dialog.is_some()
+}
+
 pub fn on_escape(app: &mut Halo) -> Task<Message> {
     if dialogs::on_escape(app) {
         return Task::none();
