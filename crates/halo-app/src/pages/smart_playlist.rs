@@ -658,7 +658,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                     .width(Length::Fill)
                     .padding(Padding::from([6.0, 8.0]))
                     .on_double_click(sm(SMsg::Play(i)))
-                    .on_right_press_at(crate::components::context_menu::opener(
+                    .on_right_press(crate::components::context_menu::opener(
                         crate::components::context_menu::Target::Track {
                             id: tr.id,
                             album: tr.album_name.clone(),

@@ -410,7 +410,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                 .padding(Padding::from([6.0, 12.0]))
                 .opacity(if dragged { 0.4 } else { 1.0 })
                 .on_double_click(Message::Player(PlayerCmd::PlayTracks(ids2, idx as i64)))
-                .on_right_press_at(crate::components::context_menu::opener(
+                .on_right_press(crate::components::context_menu::opener(
                     crate::components::context_menu::Target::Track {
                         id: r.track_id,
                         album: r.album_name.clone(),

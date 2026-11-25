@@ -21,7 +21,6 @@ pub struct Status {
 }
 
 type StyleFn<'a> = Box<dyn Fn(Status) -> container::Style + 'a>;
-type AtFn<'a, Message> = Box<dyn Fn(iced::Point) -> Message + 'a>;
 
 pub struct Surface<'a, Message> {
     content: Element<'a, Message>,
@@ -32,7 +31,6 @@ pub struct Surface<'a, Message> {
     on_press: Option<Message>,
     on_double_click: Option<Message>,
     on_right_press: Option<Message>,
-    on_right_press_at: Option<AtFn<'a, Message>>,
     on_enter: Option<Message>,
     on_exit: Option<Message>,
     interaction: Option<mouse::Interaction>,
@@ -49,7 +47,6 @@ pub fn surface<'a, Message>(content: impl Into<Element<'a, Message>>) -> Surface
         on_press: None,
         on_double_click: None,
         on_right_press: None,
-        on_right_press_at: None,
         on_enter: None,
         on_exit: None,
         interaction: None,
@@ -88,12 +85,6 @@ impl<'a, Message: Clone> Surface<'a, Message> {
     }
     pub fn on_right_press(mut self, m: Message) -> Self {
         self.on_right_press = Some(m);
-        self
-    }
-    /// Right click, with the cursor's position in window coordinates (to
-    /// open a context menu there).
-    pub fn on_right_press_at(mut self, f: impl Fn(iced::Point) -> Message + 'a) -> Self {
-        self.on_right_press_at = Some(Box::new(f));
         self
     }
     pub fn on_enter(mut self, m: Message) -> Self {
@@ -241,10 +232,6 @@ impl<'a, Message: Clone> Widget<Message, iced::Theme, iced::Renderer> for Surfac
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) if over => {
                 if let Some(m) = &self.on_right_press {
                     shell.publish(m.clone());
-                    shell.capture_event();
-                }
-                if let (Some(f), Some(pos)) = (&self.on_right_press_at, cursor.position()) {
-                    shell.publish(f(pos));
                     shell.capture_event();
                 }
             }

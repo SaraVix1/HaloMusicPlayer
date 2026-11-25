@@ -273,6 +273,16 @@ Saves multiply by the same scale and clamp again; a window dropped outside the w
 
 ---
 
+## iced: the cursor inside a `scrollable` is in content coordinates
+
+**Symptom.** A right-click menu opens at the right spot at the top of a list, but lower and lower the further the list is scrolled.
+
+**Cause.** A `scrollable` translates the cursor it passes to its children by the scroll offset, so `cursor.position()` in a row is a position in the scrolled content, not in the window.
+
+**Fix.** Anything that needs the on-screen position (the context menu) gets it from a widget outside every scrollable: `widgets::probe::RightClickProbe`, an invisible top layer of the main window that publishes right-click positions in window coordinates without capturing events or reporting a mouse interaction (a stack only hides the cursor from lower layers when an upper one reports an interaction). The row just says "open my menu" (`context_menu::Msg::Open`); the menu takes the position from the probe's `RightAt`, whichever of the two messages comes first.
+
+---
+
 ## Testing the UI headless (Xvfb)
 
 **Symptom.** Under Xvfb the app panics (`libxkbcommon-x11.so could not be loaded`), or keyboard input (xdotool) never reaches the window, or the audio backend fails to start.
