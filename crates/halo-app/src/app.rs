@@ -10,7 +10,7 @@ use iced::keyboard::{self, key, Key, Modifiers};
 use iced::widget::{column, container, mouse_area, row, stack};
 use iced::{event, mouse, window, Element, Length, Point, Size, Subscription, Task, Theme};
 
-use crate::components::{lyrics, mini, now_playing, palette, sidebar, title_bar};
+use crate::components::{fullscreen, lyrics, mini, now_playing, palette, sidebar, title_bar};
 use crate::pages;
 use crate::route::{History, Route};
 use crate::theme;
@@ -86,6 +86,7 @@ pub enum Message {
     Player(PlayerCmd),
 
     NowPlaying(now_playing::Msg),
+    Fullscreen(fullscreen::Msg),
     Mini(mini::Msg),
     Lyrics(lyrics::Msg),
     Palette(palette::Msg),
@@ -127,6 +128,7 @@ pub struct Halo {
     pub now_playing: now_playing::State,
     pub mini: mini::State,
     pub lyrics: lyrics::State,
+    pub fullscreen: fullscreen::State,
     pub palette: palette::State,
     pub pages: pages::Pages,
     media_started: bool,
@@ -198,6 +200,7 @@ impl Halo {
             now_playing: now_playing::State::default(),
             mini: mini::State::default(),
             lyrics: lyrics::State::default(),
+            fullscreen: fullscreen::State::default(),
             palette: palette::State::default(),
             pages: pages::Pages {
                 library: pages::library::LibraryState::new(&backend),
@@ -233,12 +236,15 @@ impl Halo {
         self.apply_theme();
     }
 
-    fn apply_theme(&self) {
-        let dark = match self.theme_pref.as_str() {
-            "light" => false,
-            "system" => self.system_mode != iced::theme::Mode::Light,
-            _ => true,
-        };
+    /// Light / dark from the preference; always dark while full-screen now
+    /// playing is open (light text over the darkened art).
+    pub fn apply_theme(&self) {
+        let dark = self.fullscreen.open
+            || match self.theme_pref.as_str() {
+                "light" => false,
+                "system" => self.system_mode != iced::theme::Mode::Light,
+                _ => true,
+            };
         theme::set_dark(dark);
     }
 
@@ -260,6 +266,7 @@ impl Halo {
         Task::batch([
             now_playing::on_track(self, id),
             lyrics::on_track(self, id),
+            fullscreen::on_track(self),
             self.refresh_accent(),
         ])
     }
@@ -303,8 +310,10 @@ impl Halo {
             Message::Navigate(route) => {
                 let prev = self.route().clone();
                 self.lyrics.open = false;
+                // e.g. a Ctrl+K result picked over full-screen now playing.
+                let leave = fullscreen::update(self, fullscreen::Msg::Close);
                 self.history.push(route);
-                pages::on_navigate(self, prev)
+                Task::batch([leave, pages::on_navigate(self, prev)])
             }
             Message::ReplaceRoute(route) => {
                 let prev = self.route().clone();
@@ -395,6 +404,7 @@ impl Halo {
 
             Message::Player(cmd) => self.player_cmd(cmd),
             Message::NowPlaying(m) => now_playing::update(self, m),
+            Message::Fullscreen(m) => fullscreen::update(self, m),
             Message::Mini(m) => mini::update(self, m),
             Message::Lyrics(m) => lyrics::update(self, m),
             Message::Palette(m) => palette::update(self, m),
@@ -524,6 +534,12 @@ impl Halo {
             Key::Named(key::Named::Escape) if self.palette.open => {
                 self.update(Message::Palette(palette::Msg::Close))
             }
+            Key::Named(key::Named::Escape) if self.fullscreen.open && !pages::has_dialog(self) => {
+                self.update(Message::Fullscreen(fullscreen::Msg::Close))
+            }
+            Key::Named(key::Named::F11) if self.fullscreen.open => {
+                self.update(Message::Fullscreen(fullscreen::Msg::ToggleOsFullscreen))
+            }
             Key::Named(key::Named::Escape) => pages::on_escape(self),
             Key::Named(key::Named::ArrowUp) if self.palette.open => {
                 self.update(Message::Palette(palette::Msg::Move(-1)))
@@ -607,8 +623,9 @@ impl Halo {
     }
 
     pub fn open_mini(&mut self) -> Task<Message> {
+        let leave = fullscreen::update(self, fullscreen::Msg::Close);
         let open = mini::open(self);
-        Task::batch([open, self.hide_main()])
+        Task::batch([leave, open, self.hide_main()])
     }
 
     pub fn view(&self, id: window::Id) -> Element<'_, Message> {
@@ -616,6 +633,18 @@ impl Halo {
             return mini::view(self);
         }
         let main_id = id;
+        if self.fullscreen.open {
+            let mut layers = stack![fullscreen::view(self, title_bar::view(self, main_id))]
+                .width(Length::Fill)
+                .height(Length::Fill);
+            if let Some(overlay) = pages::overlay(self) {
+                layers = layers.push(overlay);
+            }
+            if self.palette.open {
+                layers = layers.push(palette::view(self));
+            }
+            return layers.push(resize_handles(main_id)).into();
+        }
         let content: Element<'_, Message> = if self.lyrics.open {
             lyrics::view(self)
         } else {

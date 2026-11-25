@@ -247,8 +247,13 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         (None, None) => text("—").size(theme::SMALL).color(k.muted_fg).into(),
     };
 
+    // Clicking the cover opens full-screen now playing.
+    let cover = button(art(track.and_then(|t| t.album_art_path.as_deref()), 40.0, theme::R_SM))
+        .padding(0)
+        .style(theme::btn_bare)
+        .on_press_maybe(has_track.then(crate::components::fullscreen::open_message));
     let info = row![
-        art(track.and_then(|t| t.album_art_path.as_deref()), 40.0, theme::R_SM),
+        tip(cover, "Full-screen player", Position::Top),
         column![line1, line2].spacing(2).width(Length::Fill),
     ]
     .spacing(12)

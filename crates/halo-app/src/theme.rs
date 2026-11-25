@@ -51,6 +51,8 @@ pub const TITLE: f32 = 20.0;
 pub const BODY: f32 = 14.0;
 /// Secondary text: artists, counts, hints, badges.
 pub const SMALL: f32 = 12.0;
+/// The one exception: the song title in full-screen now playing.
+pub const DISPLAY: f32 = 28.0;
 
 // ── Radii ────────────────────────────────────────────────────────────────────
 //
@@ -487,6 +489,22 @@ pub fn divider_alpha(alpha: f32) -> impl Fn(&Theme) -> container::Style {
     }
 }
 
+/// Dark veil over the blurred art in full-screen now playing.
+pub fn scrim(_: &Theme) -> container::Style {
+    container::Style {
+        background: Some(a(BLACK, 0.55).into()),
+        ..container::Style::default()
+    }
+}
+
+/// Transparent title bar (full-screen now playing shows the art under it).
+pub fn clear(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(t().foreground),
+        ..container::Style::default()
+    }
+}
+
 /// Window frame — title bar and now-playing bar — in the sidebar's colour,
 /// so the chrome frames the page without divider lines.
 pub fn frame(_: &Theme) -> container::Style {
@@ -685,6 +703,19 @@ pub fn btn_play(_: &Theme, status: button::Status) -> button::Style {
     match status {
         button::Status::Hovered | button::Status::Pressed => {
             btn(Some(a(k.foreground, 0.8)), k.background, no_border(R_FULL))
+        }
+        button::Status::Disabled => disabled(base, 0.3),
+        button::Status::Active => base,
+    }
+}
+
+/// Big round accent button (full-screen Play / Pause).
+pub fn btn_accent_round(_: &Theme, status: button::Status) -> button::Style {
+    let k = t();
+    let base = btn(Some(k.primary), k.primary_fg, no_border(R_FULL));
+    match status {
+        button::Status::Hovered | button::Status::Pressed => {
+            btn(Some(a(k.primary, 0.85)), k.primary_fg, no_border(R_FULL))
         }
         button::Status::Disabled => disabled(base, 0.3),
         button::Status::Active => base,

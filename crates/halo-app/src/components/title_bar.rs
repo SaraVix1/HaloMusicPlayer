@@ -77,5 +77,7 @@ pub fn view(app: &Halo, id: window::Id) -> Element<'_, Message> {
         .width(Length::Fill)
         .align_y(Alignment::Center);
 
-    container(bar).style(theme::frame).into()
+    // Over the blurred art in full-screen now playing, the bar is see-through.
+    let style = if app.fullscreen.open { theme::clear } else { theme::frame };
+    container(bar).style(style).into()
 }

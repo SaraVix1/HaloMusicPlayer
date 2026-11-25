@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use halo_backend::commands::lyrics::{self, LyricsCandidate, LyricsResult};
+use halo_backend::commands::lyrics::{self, LyricsCandidate, LyricsLine, LyricsResult};
 use iced::widget::{
     button, center, column, container, row, scrollable, text, text_editor, text_input, Space,
 };
@@ -130,6 +130,57 @@ fn fetch_online(app: &mut Halo, id: i64) -> Task<Message> {
     )
 }
 
+/// What the full-screen now-playing view shows beside the cover.
+pub enum Excerpt<'a> {
+    Loading,
+    /// Synced lyrics: `lines[range]` around the `active` line (None: the
+    /// song hasn't reached the first line yet).
+    Synced {
+        lines: &'a [LyricsLine],
+        range: std::ops::Range<usize>,
+        active: Option<usize>,
+    },
+    Plain(&'a [LyricsLine]),
+    None,
+}
+
+/// Lines shown before / after the active synced line.
+pub const EXCERPT_BEFORE: usize = 2;
+pub const EXCERPT_AFTER: usize = 3;
+
+pub fn excerpt(app: &Halo) -> Excerpt<'_> {
+    let st = &app.lyrics;
+    if st.loading || (st.fetching && !has_lyrics(&st.lyrics)) {
+        return Excerpt::Loading;
+    }
+    match st.lyrics.as_ref().filter(|_| has_lyrics(&st.lyrics)) {
+        Some(l) if l.synced => Excerpt::Synced {
+            lines: &l.lines,
+            range: excerpt_range(l.lines.len(), st.active, EXCERPT_BEFORE, EXCERPT_AFTER),
+            active: st.active,
+        },
+        Some(l) => Excerpt::Plain(&l.lines),
+        None => Excerpt::None,
+    }
+}
+
+/// Indices around `active`: `before` lines above, `after` below, clipped to
+/// `0..len`. Before the first line: the first `after + 1` lines.
+pub fn excerpt_range(len: usize, active: Option<usize>, before: usize, after: usize) -> std::ops::Range<usize> {
+    match active {
+        Some(i) => i.saturating_sub(before).min(len)..(i + after + 1).min(len),
+        None => 0..(after + 1).min(len),
+    }
+}
+
+/// Open the panel (the full-screen view's "Find lyrics").
+pub fn open(app: &mut Halo) -> Task<Message> {
+    if app.lyrics.open {
+        return Task::none();
+    }
+    toggle(app)
+}
+
 /// Show / hide the panel; on open, re-centre the active synced line.
 pub fn toggle(app: &mut Halo) -> Task<Message> {
     app.lyrics.open = !app.lyrics.open;
@@ -179,6 +230,11 @@ pub fn on_position(app: &mut Halo) -> Task<Message> {
         SCROLL_ID,
         scrollable::AbsoluteOffset { x: None, y: Some(y) },
     )
+}
+
+/// Seek to a lyric line (also used by the full-screen view).
+pub fn seek(ms: u64) -> Message {
+    lm(Msg::Seek(ms))
 }
 
 pub fn subscription(app: &Halo) -> Option<Subscription<Message>> {
@@ -664,4 +720,24 @@ fn search_view(app: &Halo) -> Element<'_, Message> {
         .style(theme::scroll)
         .height(Length::Fill)
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::excerpt_range;
+
+    #[test]
+    fn excerpt_range_around_active_line() {
+        // Before the first line: the first four lines.
+        assert_eq!(excerpt_range(10, None, 2, 3), 0..4);
+        // Start: nothing above line 0.
+        assert_eq!(excerpt_range(10, Some(0), 2, 3), 0..4);
+        // Middle: two above, three below.
+        assert_eq!(excerpt_range(10, Some(5), 2, 3), 3..9);
+        // End: clipped at the last line.
+        assert_eq!(excerpt_range(10, Some(9), 2, 3), 7..10);
+        // Short song.
+        assert_eq!(excerpt_range(2, None, 2, 3), 0..2);
+        assert_eq!(excerpt_range(0, None, 2, 3), 0..0);
+    }
 }
