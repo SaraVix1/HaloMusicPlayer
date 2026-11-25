@@ -52,15 +52,24 @@ fn prefer_x11() {
     std::env::remove_var("WAYLAND_SOCKET");
 }
 
-/// Linux: let wgpu use Vulkan only. iced asks for every backend, so
-/// OpenGL / EGL was initialised as well, for nothing: Vulkan only starts
-/// ~220 ms faster and uses ~55 MB less (GTX 1660, Debian 13). Without
-/// Vulkan, iced falls back to its software renderer. An explicit
-/// `WGPU_BACKEND` wins. Must run before any thread starts.
-#[cfg(target_os = "linux")]
-fn prefer_vulkan() {
+/// Let wgpu use one backend: Vulkan on Linux, DirectX 12 on Windows. iced
+/// asks for every compiled-in backend, so OpenGL (and on Windows Vulkan)
+/// were initialised as well, for nothing. Linux, measured back to back
+/// (GTX 1660, Debian 13): ~450 → ~375 ms to the first window, 211 → 187 MB.
+/// Windows is not measured yet. Without that backend iced falls back to its
+/// software renderer (unless `ICED_BACKEND` forces wgpu). macOS builds only
+/// Metal, so nothing to do there. An explicit `WGPU_BACKEND` wins. Must run
+/// before any thread starts (it changes the environment).
+fn prefer_one_gpu_backend() {
+    let backend = if cfg!(target_os = "linux") {
+        "vulkan"
+    } else if cfg!(windows) {
+        "dx12"
+    } else {
+        return;
+    };
     if std::env::var_os("WGPU_BACKEND").is_none() {
-        std::env::set_var("WGPU_BACKEND", "vulkan");
+        std::env::set_var("WGPU_BACKEND", backend);
     }
 }
 
@@ -86,10 +95,8 @@ fn main() -> iced::Result {
     halo_backend::mem::limit_arenas(); // before any thread starts
     halo_backend::profile::start();
     #[cfg(target_os = "linux")]
-    {
-        prefer_x11();
-        prefer_vulkan();
-    }
+    prefer_x11();
+    prefer_one_gpu_backend();
     halo_backend::profile::mark("single-instance check");
     halo_backend::platform::set_app_user_model_id();
 

@@ -303,13 +303,13 @@ Saves multiply by the same scale and clamp again; a window dropped outside the w
 
 ---
 
-## Renderer: wgpu on Linux is limited to Vulkan
+## Renderer: wgpu is limited to one backend (Vulkan on Linux, DX12 on Windows)
 
-**Symptom.** With `WGPU_BACKEND` unset, startup spends ~550 ms before the first frame and RSS is ~245 MB, most of it graphics drivers.
+**Symptom.** With `WGPU_BACKEND` unset, startup spends ~450 ms before the first frame and RSS is ~210 MB on Linux, most of it graphics drivers.
 
-**Cause.** iced's window compositor asks wgpu for `Backends::all()`, so OpenGL / EGL is initialised next to Vulkan. (The Vulkan loader also loads every installed ICD, lavapipe + LLVM included; disabling it saved only ~4 MB, so it is left alone.)
+**Cause.** iced's window compositor asks wgpu for `Backends::all()`. wgpu is built with its default features, so Linux initialises OpenGL / EGL next to Vulkan, and Windows initialises DX12, Vulkan and OpenGL. macOS only compiles Metal. (On Linux the Vulkan loader also loads every installed ICD, lavapipe + LLVM included; disabling it saved only ~4 MB, so it is left alone.)
 
-**Fix.** `prefer_vulkan` in [main.rs](../crates/halo-app/src/main.rs) sets `WGPU_BACKEND=vulkan` before any thread starts (unless set). Without a Vulkan driver iced falls back to tiny-skia by itself, as long as `ICED_BACKEND` is not forced. tiny-skia is lighter at rest (~67 MB, ~80 ms startup) but costs ~35 % of a core while covers fade at 1200×750, growing with window pixels.
+**Fix.** `prefer_one_gpu_backend` in [main.rs](../crates/halo-app/src/main.rs) sets `WGPU_BACKEND=vulkan` (Linux) / `dx12` (Windows) before any thread starts, unless already set. Linux, back to back: ~450 → ~375 ms, 211 → 187 MB. Windows: not measured yet. Without that backend iced falls back to tiny-skia by itself, as long as `ICED_BACKEND` is not forced (tested on Linux with `WGPU_BACKEND=dx12`). tiny-skia is lighter at rest (~68 MB, ~80 ms startup) but costs ~35 % of a core while covers fade at 1200×750, growing with window pixels.
 
 ---
 
