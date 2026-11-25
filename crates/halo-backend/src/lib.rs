@@ -10,6 +10,7 @@ pub mod commands;
 pub mod db;
 pub mod open_files;
 pub mod platform;
+pub mod profile;
 pub mod scanner;
 pub mod watcher;
 

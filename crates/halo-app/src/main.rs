@@ -70,8 +70,10 @@ pub fn open_url(url: &str) -> std::io::Result<()> {
 }
 
 fn main() -> iced::Result {
+    halo_backend::profile::start();
     #[cfg(target_os = "linux")]
     prefer_x11();
+    halo_backend::profile::mark("single-instance check");
     halo_backend::platform::set_app_user_model_id();
 
     // A second launch hands its argv (files to open) to the running Halo
@@ -97,6 +99,7 @@ fn main() -> iced::Result {
         halo_backend::open_files::paths_from_args(&argv, &cwd)
     };
     backend.handle_launch_files(launch_files);
+    halo_backend::profile::mark("launch files / resume");
 
     let mut daemon = iced::daemon(
         move || app::Halo::new(backend.clone()),
@@ -111,5 +114,6 @@ fn main() -> iced::Result {
     for font in theme::FONT_BYTES {
         daemon = daemon.font(*font);
     }
+    halo_backend::profile::mark("iced daemon starting (fonts loaded)");
     daemon.run()
 }

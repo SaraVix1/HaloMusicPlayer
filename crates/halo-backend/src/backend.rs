@@ -149,6 +149,7 @@ impl Backend {
             .map_err(|e| format!("failed to create app data dir: {e}"))?;
         let conn = crate::db::open(paths.data_dir.clone())
             .map_err(|e| format!("failed to open database: {e}"))?;
+        crate::profile::mark("db open + migrations");
 
         let saved_volume: Option<f32> = read_app_state(&conn, "player.volume")
             .and_then(|s| s.parse::<f32>().ok());
@@ -159,14 +160,18 @@ impl Backend {
         // first track's EqSource already has the correct coefficients.
         let eq_state = Arc::new(audio::eq::EqState::new());
         commands::eq::restore_eq_state(&conn, &eq_state);
+        crate::profile::mark("eq restored");
         // If the current output device has a saved profile, apply it on top.
         if let Some(dev) = commands::eq::get_current_device_name() {
             commands::eq::load_device_eq_if_exists(&conn, &dev, &eq_state);
         }
+        crate::profile::mark("output device name (per-device EQ)");
         let lastfm = LastFmState::load(&conn);
+        crate::profile::mark("last.fm state loaded");
 
         let player = PlayerHandle::new(saved_volume, Arc::clone(&eq_state))
             .map_err(|e| format!("failed to init audio: {e}"))?;
+        crate::profile::mark("audio player created");
 
         let (tx, rx) = unbounded_channel();
         let backend = Backend(Arc::new(Inner {
@@ -187,8 +192,10 @@ impl Backend {
         // Folder watcher — start watching managed folders if the preference is on.
         let _ = backend.0.watcher.set(watcher::init(&backend));
         watcher::reconfigure(&backend);
+        crate::profile::mark("folder watcher");
 
         backend.spawn_ticker();
+        crate::profile::mark("backend started");
         Ok(backend)
     }
 
