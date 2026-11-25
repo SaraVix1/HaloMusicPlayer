@@ -25,3 +25,34 @@ pub fn mark(label: &str) {
         eprintln!("[profile] {ms:>8.1} ms  {label}");
     }
 }
+
+/// `[profile] state changed: position_ms, current_track.play_count` — which
+/// (nested) JSON fields differ between two player-state snapshots.
+pub fn changed_keys(old: &str, new: &str) {
+    let (Ok(a), Ok(b)) = (
+        serde_json::from_str::<serde_json::Value>(old),
+        serde_json::from_str::<serde_json::Value>(new),
+    ) else {
+        return;
+    };
+    let mut out = Vec::new();
+    diff("", &a, &b, &mut out);
+    eprintln!("[profile] state changed: {}", out.join(", "));
+}
+
+fn diff(prefix: &str, a: &serde_json::Value, b: &serde_json::Value, out: &mut Vec<String>) {
+    use serde_json::Value::Object;
+    match (a, b) {
+        (Object(x), Object(y)) => {
+            for (k, v) in y {
+                let p = if prefix.is_empty() { k.clone() } else { format!("{prefix}.{k}") };
+                match x.get(k) {
+                    Some(w) => diff(&p, w, v, out),
+                    None => out.push(p),
+                }
+            }
+        }
+        _ if a != b => out.push(prefix.to_string()),
+        _ => {}
+    }
+}

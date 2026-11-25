@@ -8,6 +8,7 @@ pub mod audio;
 pub mod backend;
 pub mod commands;
 pub mod db;
+pub mod mem;
 pub mod open_files;
 pub mod platform;
 pub mod profile;

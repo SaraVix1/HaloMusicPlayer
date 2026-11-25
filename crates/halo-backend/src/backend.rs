@@ -324,6 +324,9 @@ impl Backend {
                 let mut last_device: String = String::new();
                 let mut tick_count: u64 = 0;
                 let mut last_snapshot = String::new();
+                // Tick at which to hand freed heap back (3 s after the last
+                // track change, see `mem::trim`).
+                let mut trim_at: Option<u64> = None;
                 loop {
                     std::thread::sleep(Duration::from_millis(250));
                     commands::sleep_timer::tick(&app);
@@ -370,6 +373,11 @@ impl Backend {
                         if let Some(ref ct) = state.current_track {
                             commands::lastfm::on_track_start(&app, ct.track_id);
                         }
+                        trim_at = Some(tick_count + 12);
+                    }
+                    if trim_at.is_some_and(|t| tick_count >= t) {
+                        trim_at = None;
+                        crate::mem::trim();
                     }
                     app.sync_media_controls(
                         &state,
@@ -381,6 +389,9 @@ impl Backend {
                     // stopped, idle) used to redraw the whole UI 4×/s.
                     let snapshot = serde_json::to_string(&state).unwrap_or_default();
                     if snapshot != last_snapshot {
+                        if crate::profile::enabled() {
+                            crate::profile::changed_keys(&last_snapshot, &snapshot);
+                        }
                         last_snapshot = snapshot;
                         app.emit(BackendEvent::PlayerState(Box::new(state)));
                     }
