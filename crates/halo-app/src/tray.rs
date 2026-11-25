@@ -35,8 +35,20 @@ fn channel() -> &'static UnboundedSender<TrayAction> {
     })
 }
 
-const ICON_PNG: &[u8] = include_bytes!("../assets/icons/32x32.png");
+/// Windows: the exe's `.ico` resource at the small-icon size for the
+/// display scale, so the hand-tuned 16/24/32 px drawings are used as-is.
+#[cfg(windows)]
+fn load_icon() -> Option<tray_icon::Icon> {
+    let px = halo_backend::platform::small_icon_size();
+    tray_icon::Icon::from_resource(1, Some((px, px))).ok()
+}
 
+/// Linux / macOS: 64 px — panels (and HiDPI ones) scale it down cleanly;
+/// a 32 px icon gets blurry when a panel scales it up.
+#[cfg(not(windows))]
+const ICON_PNG: &[u8] = include_bytes!("../assets/icons/64x64.png");
+
+#[cfg(not(windows))]
 fn load_icon() -> Option<tray_icon::Icon> {
     let img = image::load_from_memory(ICON_PNG).ok()?.into_rgba8();
     let (w, h) = img.dimensions();

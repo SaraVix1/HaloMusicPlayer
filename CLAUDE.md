@@ -31,6 +31,9 @@ cargo packager --release -p halo --formats deb,appimage
 # RPM (cargo-packager has none; cargo install cargo-generate-rpm --locked)
 cargo generate-rpm -p crates/halo-app             # → target/generate-rpm/*.rpm
 
+# Re-export app icons (PNGs, .ico, .icns) from crates/halo-app/assets/icons/src/*.svg
+python3 scripts/build-icons.py
+
 # Set the version by hand (root Cargo.toml [workspace.package] + Cargo.lock)
 python3 scripts/bump-version.py <version>
 ```

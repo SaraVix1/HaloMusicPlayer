@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!-- Halo icon, 16 px: the blue pair only (no room for the pink note),
+       on the pixel grid (stems 2 px, heads 5 px). -->
+  <defs>
+    <linearGradient id="blue" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="16" y2="0">
+      <stop offset="0.5625" stop-color="#3bb3ef"/><stop offset="0.5625" stop-color="#3d9bde"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#blue)">
+    <circle cx="4.5" cy="12.5" r="2.5"/>
+    <circle cx="11.5" cy="10.5" r="2.5"/>
+    <polygon points="5,4 14,1 14,10.5 12,10.5 12,4.67 7,6.33 7,12.5 5,12.5"/>
+  </g>
+</svg>

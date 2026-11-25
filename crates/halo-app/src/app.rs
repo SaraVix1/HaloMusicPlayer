@@ -291,12 +291,16 @@ impl Halo {
             }
 
             Message::WindowOpened(id) => {
-                if Some(id) == self.main_id && !self.media_started {
+                if Some(id) != self.main_id {
+                    return Task::none();
+                }
+                let icon = exe_icon(id);
+                if !self.media_started {
                     self.media_started = true;
                     tray::create();
-                    return self.start_media_controls(id);
+                    return Task::batch([icon, self.start_media_controls(id)]);
                 }
-                Task::none()
+                icon
             }
             Message::WindowEvent(id, ev) => self.on_window_event(id, ev),
             Message::CloseRequested(id) => {
@@ -712,3 +716,24 @@ fn backend_events(b: &BackendStream) -> impl iced::futures::Stream<Item = Backen
 
 #[allow(dead_code)]
 fn _unused(_: Point, _: Duration) {}
+
+/// Windows: give the main window the exe's multi-size `.ico` (crisp taskbar
+/// and Alt+Tab icon at any display scale) instead of iced's single RGBA
+/// icon, which Windows rescales. No-op elsewhere.
+fn exe_icon(id: window::Id) -> Task<Message> {
+    #[cfg(windows)]
+    {
+        window::run(id, |w| {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            if let Ok(RawWindowHandle::Win32(h)) = w.window_handle().map(|h| h.as_raw()) {
+                halo_backend::platform::set_window_icon_from_exe(h.hwnd.get() as *mut std::ffi::c_void);
+            }
+        })
+        .discard()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = id;
+        Task::none()
+    }
+}
