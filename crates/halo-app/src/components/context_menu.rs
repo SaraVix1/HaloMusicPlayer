@@ -41,6 +41,8 @@ pub enum Target {
     },
     Album { name: String, artists: Vec<String> },
     Artist { name: String, album_artist: bool },
+    /// A folder card: its songs and everything below it.
+    Folder { path: String },
 }
 
 #[derive(Debug, Clone)]
@@ -127,6 +129,7 @@ fn items(target: &Target) -> Vec<Option<(Icon, String, Item)>> {
         Target::Artist { name, album_artist } => {
             v.push(Some((Icon::Mic2, "Go to Artist".into(), Item::GoToArtist(name.clone(), *album_artist))));
         }
+        Target::Folder { .. } => {}
     }
     // No trailing / doubled separators.
     while matches!(v.last(), Some(None)) {
@@ -180,6 +183,9 @@ pub fn update(app: &mut Halo, m: Msg) -> Task<Message> {
 fn track_ids(b: &Backend, target: &Target) -> Result<Vec<i64>, String> {
     let q = match target {
         Target::Track { id, .. } => return Ok(vec![*id]),
+        Target::Folder { path } => {
+            return Ok(library::get_dir_tracks(path.clone(), true, b.db())?.iter().map(|t| t.id).collect())
+        }
         Target::Album { name, .. } => TracksQuery {
             album: Some(name.clone()),
             sort: Some("track_number".into()),

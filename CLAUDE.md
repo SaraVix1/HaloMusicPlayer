@@ -107,7 +107,8 @@ crates/
             ├── home.rs         # start page: greeting + album rows (recently played / most played /
             │                   # recently added, `get_home_shelves`)
             ├── tracks.rs       # shared track table (Songs / Recently Played / Most Played)
-            ├── songs.rs  recently_played.rs  most_played.rs  albums.rs  folders.rs
+            ├── songs.rs  recently_played.rs  most_played.rs  albums.rs
+            ├── folders.rs      # folder cards + breadcrumb (Route::Folder(path)), a folder's songs as rows
             ├── library/        # mod.rs (tabs page: Songs | Albums | Artists | Genres | More ▾, Sort ▾;
             │                   # Songs, Albums, Folders keep their own routes) + sort.rs (per-tab sort,
             │                   # saved as `library.sort.<tab>` prefs) + cards.rs + artists, album_artists, composers,

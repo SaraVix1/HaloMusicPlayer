@@ -89,6 +89,8 @@ pub enum Route {
     Genres,
     Years,
     Folders,
+    /// Inside a music folder (its path).
+    Folder(String),
     Playlists,
     Playlist(i64),
     SmartPlaylist(i64),
@@ -118,6 +120,7 @@ impl Route {
             Route::Songs(_)
             | Route::Albums
             | Route::Folders
+            | Route::Folder(_)
             | Route::Library(_)
             | Route::Artists
             | Route::AlbumArtists
@@ -136,7 +139,7 @@ impl Route {
         match self {
             Route::Songs(q) if is_all_songs(q) => Some(LibraryTab::Songs),
             Route::Albums => Some(LibraryTab::Albums),
-            Route::Folders => Some(LibraryTab::Folders),
+            Route::Folders | Route::Folder(_) => Some(LibraryTab::Folders),
             Route::Library(tab) => *tab,
             _ => None,
         }
