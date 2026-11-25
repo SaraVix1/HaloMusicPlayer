@@ -81,7 +81,7 @@ pub fn chips<'a>(q: &TracksQuery) -> Option<Element<'a, Message>> {
         let target = without(q, f);
         r = r.push(
             button(
-                row![text(label).size(theme::TEXT_XS).font(theme::MEDIUM), icon(Icon::X, 12.0)]
+                row![text(label).size(theme::SMALL).font(theme::MEDIUM), icon(Icon::X, 12.0)]
                     .spacing(4)
                     .align_y(Alignment::Center),
             )
@@ -110,14 +110,14 @@ pub fn chips<'a>(q: &TracksQuery) -> Option<Element<'a, Message>> {
 fn empty_library<'a>() -> Element<'a, Message> {
     let k = t();
     row![
-        text("No tracks found. ").size(theme::TEXT_SM).color(k.muted_fg),
-        button(text("Add a folder and scan").size(theme::TEXT_SM))
+        text("No tracks found. ").size(theme::BODY).color(k.muted_fg),
+        button(text("Add a folder and scan").size(theme::BODY))
             .padding(0)
             .style(theme::btn_link)
             .on_press(Message::Navigate(Route::Settings(Some(
                 crate::route::SettingsTab::Library
             )))),
-        text(" to get started.").size(theme::TEXT_SM).color(k.muted_fg),
+        text(" to get started.").size(theme::BODY).color(k.muted_fg),
     ]
     .into()
 }

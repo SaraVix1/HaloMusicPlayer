@@ -28,7 +28,7 @@ pub fn muted<'a>(s: impl text::IntoFragment<'a>, size: f32) -> text::Text<'a> {
 }
 
 pub fn h1<'a>(s: impl text::IntoFragment<'a>) -> text::Text<'a> {
-    text(s).size(theme::TEXT_2XL).font(theme::SEMIBOLD)
+    text(s).size(theme::TITLE).font(theme::SEMIBOLD)
 }
 
 // ── Layout bits ───────────────────────────────────────────────────────────────
@@ -79,7 +79,7 @@ pub fn tip<'a, M: 'a>(
     label: impl Into<String>,
     position: tooltip::Position,
 ) -> Element<'a, M> {
-    let bubble = container(text(label.into()).size(theme::TEXT_XS).font(theme::SANS))
+    let bubble = container(text(label.into()).size(theme::SMALL).font(theme::SANS))
         .padding(Padding::from([6.0, 12.0]))
         .style(theme::tooltip);
     tooltip(content, bubble, position)
@@ -343,7 +343,7 @@ pub fn check<'a, M: Clone + 'a>(checked: bool, label: &'a str, msg: M) -> Elemen
             .into()
     };
     button(
-        row![bx, text(label).size(theme::TEXT_XS).color(k.muted_fg)]
+        row![bx, text(label).size(theme::SMALL).color(k.muted_fg)]
             .spacing(8)
             .align_y(Alignment::Center),
     )
@@ -360,7 +360,7 @@ pub fn trunc<'a>(s: impl Into<std::borrow::Cow<'a, str>>, size: f32) -> crate::w
 
 /// Pill-shaped small badge (`rounded-full bg-muted px-2 py-0.5 text-[10px]`).
 pub fn badge<'a, M: 'a>(label: impl text::IntoFragment<'a>) -> Element<'a, M> {
-    container(text(label).size(theme::TEXT_10).font(theme::MEDIUM))
+    container(text(label).size(theme::SMALL).font(theme::MEDIUM))
         .padding(Padding::from([2.0, 8.0]))
         .style(|_| container::Style {
             background: Some(t().muted.into()),
@@ -373,7 +373,7 @@ pub fn badge<'a, M: 'a>(label: impl text::IntoFragment<'a>) -> Element<'a, M> {
 
 /// Keyboard key hint (`kbd`).
 pub fn kbd<'a, M: 'a>(label: &'a str) -> Element<'a, M> {
-    container(text(label).size(theme::TEXT_10).font(theme::MONO))
+    container(text(label).size(theme::SMALL))
         .padding(Padding::from([1.0, 6.0]))
         .style(|_| container::Style {
             text_color: Some(t().muted_fg),
@@ -402,7 +402,7 @@ pub fn modal<'a, M: Clone + 'a>(
         .style(theme::btn_ghost)
         .on_press(on_close.clone());
     let head = row![
-        text(title).size(theme::TEXT_BASE).font(theme::MEDIUM).width(Length::Fill),
+        text(title).size(theme::BODY).font(theme::MEDIUM).width(Length::Fill),
         close,
     ]
     .align_y(Alignment::Center);
@@ -441,7 +441,7 @@ pub fn small_button<'a, M: Clone + 'a>(
     primary: bool,
     on_press: Option<M>,
 ) -> Element<'a, M> {
-    button(text(label).size(theme::TEXT_XS))
+    button(text(label).size(theme::SMALL))
         .padding(Padding::from([4.0, 12.0]))
         .style(move |th, st| {
             let mut s = if primary {

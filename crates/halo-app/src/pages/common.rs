@@ -185,11 +185,11 @@ pub fn scroll_page<'a>(key: String, content: impl Into<Element<'a, Message>>) ->
 
 /// `text-sm text-muted-foreground` paragraph (loading / empty states).
 pub fn note<'a>(s: impl text::IntoFragment<'a>) -> Element<'a, Message> {
-    ui::muted(s, theme::TEXT_SM).into()
+    ui::muted(s, theme::BODY).into()
 }
 
 pub fn error_text<'a>(e: &'a str) -> Element<'a, Message> {
-    text(e).size(theme::TEXT_SM).color(t().destructive).into()
+    text(e).size(theme::BODY).color(t().destructive).into()
 }
 
 /// Page header row: h1 on the left, `right` content on the right
@@ -203,7 +203,7 @@ pub fn header<'a>(title: &'a str, right: impl Into<Element<'a, Message>>) -> Ele
 
 /// "N item(s)" count label (`text-sm text-muted-foreground tabular-nums`).
 pub fn count<'a>(n: usize, one: &str, many: &str) -> Element<'a, Message> {
-    ui::muted(crate::format::plural(n as i64, one, many), theme::TEXT_SM).into()
+    ui::muted(crate::format::plural(n as i64, one, many), theme::BODY).into()
 }
 
 /// A vertical stack with standard page padding (`p-6`).

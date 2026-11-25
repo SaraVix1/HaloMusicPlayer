@@ -239,7 +239,7 @@ impl<'a, Message> Widget<Message, iced::Theme, iced::Renderer> for Waveform<'a, 
                         text::Text {
                             content: label,
                             bounds: r.size(),
-                            size: Pixels(theme::TEXT_10),
+                            size: Pixels(theme::SMALL),
                             line_height: text::LineHeight::Absolute(Pixels(h)),
                             font: theme::SANS,
                             align_x: text::Alignment::Center,

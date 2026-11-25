@@ -248,7 +248,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             "Optional. Scrobbles the tracks you play to your Last.fm profile. Enter the app’s \
              API key once, then each person signs in to their own account — sign-in clears when \
              the app closes unless “Stay signed in” is on.",
-            theme::TEXT_XS,
+            theme::SMALL,
         ))
         .max_width(448),
         ui::vspace(12.0),
@@ -264,12 +264,12 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         }
         column![
             row![
-                ui::muted("Create an API account at ", theme::TEXT_XS),
-                iced::widget::button(text("last.fm/api/account/create").size(theme::TEXT_XS))
+                ui::muted("Create an API account at ", theme::SMALL),
+                iced::widget::button(text("last.fm/api/account/create").size(theme::SMALL))
                     .padding(0)
                     .style(theme::btn_link)
                     .on_press(lm(Msg::OpenApiPage)),
-                ui::muted(" and paste the key and shared secret here.", theme::TEXT_XS),
+                ui::muted(" and paste the key and shared secret here.", theme::SMALL),
             ]
             .wrap(),
             field("API key", &st.key, "32-character API key", false, Msg::Key),
@@ -282,9 +282,9 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     } else if let Some(s) = st.status.as_ref().filter(|s| s.connected) {
         row![
             row![
-                text("Connected as ").size(theme::TEXT_SM),
+                text("Connected as ").size(theme::BODY),
                 text(format!("@{}", s.username.clone().unwrap_or_default()))
-                    .size(theme::TEXT_SM)
+                    .size(theme::BODY)
                     .font(theme::MEDIUM),
             ],
             outline_btn(None, "Disconnect", (!st.busy).then(|| lm(Msg::Disconnect))),
@@ -296,11 +296,11 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     } else if st.status.as_ref().is_some_and(|s| s.pending) {
         let copied = st.copied_at.is_some_and(|t0| t0.elapsed() < Duration::from_secs(2));
         column![
-            text("Authenticate").size(theme::TEXT_SM).font(theme::MEDIUM),
+            text("Authenticate").size(theme::BODY).font(theme::MEDIUM),
             ui::muted(
                 "Authorise Halo on Last.fm and click Allow — Halo finishes connecting \
                  automatically. Open the page here, or copy the link to open it in another browser.",
-                theme::TEXT_XS,
+                theme::SMALL,
             ),
             row![
                 primary("Open in browser", Some(lm(Msg::OpenInBrowser))),
@@ -317,7 +317,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         .into()
     } else {
         column![
-            ui::muted("Your password never touches this app — you authorise it on Last.fm.", theme::TEXT_XS),
+            ui::muted("Your password never touches this app — you authorise it on Last.fm.", theme::SMALL),
             row![
                 outline_btn(
                     None,
@@ -358,12 +358,11 @@ fn field<'a>(
     f: fn(String) -> Msg,
 ) -> iced::widget::Column<'a, Message> {
     column![
-        text(title).size(theme::TEXT_XS).font(theme::MEDIUM),
+        text(title).size(theme::SMALL).font(theme::MEDIUM),
         text_input(ph, value)
             .on_input(move |s| lm(f(s)))
             .secure(secure)
-            .size(theme::TEXT_SM)
-            .font(theme::MONO)
+            .size(theme::BODY)
             .padding(Padding::from([6.0, 12.0]))
             .style(theme::input),
     ]

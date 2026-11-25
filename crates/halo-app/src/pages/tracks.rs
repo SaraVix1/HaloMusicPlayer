@@ -143,12 +143,12 @@ fn track_row<'a>(
                     album: Some(al.clone()),
                     ..TracksQuery::default()
                 }),
-                theme::TEXT_SM,
+                theme::BODY,
             ),
-            None => ui::muted("—", theme::TEXT_SM).into(),
+            None => ui::muted("—", theme::BODY).into(),
         },
-        Variant::Recent => ui::muted(relative_time(tr.last_played_at), theme::TEXT_SM).into(),
-        Variant::MostPlayed => ui::muted(crate::format::plural(tr.play_count, "play", "plays"), theme::TEXT_SM).into(),
+        Variant::Recent => ui::muted(relative_time(tr.last_played_at), theme::BODY).into(),
+        Variant::MostPlayed => ui::muted(crate::format::plural(tr.play_count, "play", "plays"), theme::BODY).into(),
     };
     let hover_val = star_hover.filter(|(tid, _)| *tid == id).map(|(_, s)| s);
     let rating = move || {
@@ -169,8 +169,8 @@ fn track_row<'a>(
             .into(),
         px3(
             column![
-                line(title).size(theme::TEXT_SM).font(theme::MEDIUM).color(title_color).width(Length::Fill),
-                links(&tr.artists, theme::TEXT_XS, |a_| TracksQuery {
+                line(title).size(theme::BODY).font(theme::MEDIUM).color(title_color).width(Length::Fill),
+                links(&tr.artists, theme::SMALL, |a_| TracksQuery {
                     artist: Some(a_.to_string()),
                     ..TracksQuery::default()
                 }),
@@ -181,7 +181,7 @@ fn track_row<'a>(
         // Unrated tracks show their stars only on hover (in the overlay).
         if tr.rating > 0 { px3(rating()) } else { blank() },
         px3(
-            container(ui::muted(duration(tr.duration_ms), theme::TEXT_SM))
+            container(ui::muted(duration(tr.duration_ms), theme::BODY))
                 .width(Length::Fill)
                 .align_x(Alignment::End),
         ),
@@ -247,7 +247,7 @@ pub fn play_buttons<'a>(ids: Vec<i64>) -> Element<'a, Message> {
         container(
             row![
                 ui::filled(ui::Filled::Play, 13.0, k.primary_fg),
-                text("Play All").size(theme::TEXT_SM).font(theme::MEDIUM)
+                text("Play All").size(theme::BODY).font(theme::MEDIUM)
             ]
             .spacing(6)
             .align_y(Alignment::Center),
@@ -264,7 +264,7 @@ pub fn play_buttons<'a>(ids: Vec<i64>) -> Element<'a, Message> {
     .on_press_maybe(enabled.then(|| Message::Page(Msg::PlayAll(ids.clone()))));
     let shuffle = button(
         container(
-            row![icon(Icon::Shuffle, 13.0), text("Shuffle Play").size(theme::TEXT_SM).font(theme::MEDIUM)]
+            row![icon(Icon::Shuffle, 13.0), text("Shuffle Play").size(theme::BODY).font(theme::MEDIUM)]
                 .spacing(6)
                 .align_y(Alignment::Center),
         )

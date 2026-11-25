@@ -195,15 +195,15 @@ fn add_to_playlist(st: &AddToPlaylist) -> Element<'_, Message> {
     let k = t();
     let mut body = column![].spacing(12);
     if let Some(e) = &st.error {
-        body = body.push(text(e.as_str()).size(theme::TEXT_SM).color(k.destructive));
+        body = body.push(text(e.as_str()).size(theme::BODY).color(k.destructive));
     }
     let list: Element<'_, Message> = match &st.playlists {
-        None => container(ui::muted("Loading…", theme::TEXT_SM))
+        None => container(ui::muted("Loading…", theme::BODY))
             .padding(Padding::from([12.0, 4.0]))
             .into(),
         Some(v) if v.is_empty() => container(ui::muted(
             "No playlists yet — create one below.",
-            theme::TEXT_SM,
+            theme::BODY,
         ))
         .padding(Padding::from([12.0, 4.0]))
         .into(),
@@ -214,9 +214,9 @@ fn add_to_playlist(st: &AddToPlaylist) -> Element<'_, Message> {
                     button(
                         row![
                             icon(Icon::ListMusic, 14.0).color(k.muted_fg),
-                            line(p.name.as_str()).size(theme::TEXT_SM).width(Length::Fill),
+                            line(p.name.as_str()).size(theme::BODY).width(Length::Fill),
                             text(p.track_count.to_string())
-                                .size(theme::TEXT_XS)
+                                .size(theme::SMALL)
                                 .color(k.muted_fg),
                         ]
                         .spacing(8)
@@ -244,7 +244,7 @@ fn add_to_playlist(st: &AddToPlaylist) -> Element<'_, Message> {
                 .id(NEW_PLAYLIST_INPUT)
                 .on_input(|s| dm(DMsg::NameChanged(s)))
                 .on_submit(dm(DMsg::Create))
-                .size(theme::TEXT_SM)
+                .size(theme::BODY)
                 .padding(Padding::from([4.0, 0.0]))
                 .style(theme::input_underline)
                 .width(Length::Fill),
@@ -256,7 +256,7 @@ fn add_to_playlist(st: &AddToPlaylist) -> Element<'_, Message> {
         .into()
     } else {
         button(
-            row![icon(Icon::Plus, 14.0), text("New playlist…").size(theme::TEXT_SM)]
+            row![icon(Icon::Plus, 14.0), text("New playlist…").size(theme::BODY)]
                 .spacing(8)
                 .align_y(Alignment::Center),
         )
@@ -277,14 +277,14 @@ fn add_to_playlist(st: &AddToPlaylist) -> Element<'_, Message> {
 }
 
 fn confirm(c: &Confirm) -> Element<'_, Message> {
-    let body = ui::muted(c.body.as_str(), theme::TEXT_SM);
+    let body = ui::muted(c.body.as_str(), theme::BODY);
     let footer = row![
         ui::fill(),
-        ui::label_button(None, "Cancel", theme::TEXT_SM, 32.0, 10.0, theme::btn_outline, Some(dm(DMsg::Close))),
+        ui::label_button(None, "Cancel", theme::BODY, 32.0, 10.0, theme::btn_outline, Some(dm(DMsg::Close))),
         ui::label_button(
             None,
             c.confirm_label.as_str(),
-            theme::TEXT_SM,
+            theme::BODY,
             32.0,
             10.0,
             if c.destructive { theme::btn_destructive } else { theme::btn_primary },

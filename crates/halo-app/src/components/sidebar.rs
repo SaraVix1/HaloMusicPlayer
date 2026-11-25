@@ -2,7 +2,7 @@
 //! Ctrl+K palette) and, until the queue panel replaces it, Queue; Settings
 //! pinned to the bottom. Labels show as tooltips.
 
-use iced::widget::{button, column, container, row, tooltip::Position};
+use iced::widget::{button, column, container, tooltip::Position};
 use iced::{Alignment, Element, Length, Padding};
 
 use crate::app::{Halo, Message};
@@ -10,10 +10,10 @@ use crate::components::palette;
 use crate::icons::Icon;
 use crate::route::{Route, Section};
 use crate::theme;
-use crate::ui::{icon_box, tip, vline};
+use crate::ui::{icon_box, tip};
 
 fn nav_button<'a>(i: Icon, label: &'static str, active: bool, msg: Message) -> Element<'a, Message> {
-    let b = button(icon_box(i, 20.0, 40.0, 40.0))
+    let b = button(icon_box(i, 20.0, 44.0, 44.0))
         .padding(0)
         .style(theme::btn_nav(active))
         .on_press(msg);
@@ -33,7 +33,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         (Icon::ListOrdered, "Queue", Some((Section::Queue, Route::Queue))),
     ];
 
-    let mut top = column![].spacing(4).align_x(Alignment::Center);
+    let mut top = column![].spacing(6).align_x(Alignment::Center);
     for (i, label, target) in items {
         let (active, msg) = match target {
             Some((s, r)) => (section == s, Message::Navigate(r)),
@@ -54,14 +54,9 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         settings,
     ]
     .align_x(Alignment::Center)
-    .width(55)
+    .width(64)
     .height(Length::Fill)
     .padding(Padding::from([8.0, 0.0]));
 
-    row![
-        container(rail).style(theme::sidebar).height(Length::Fill),
-        container(vline::<Message>()).style(theme::sidebar_divider),
-    ]
-    .height(Length::Fill)
-    .into()
+    container(rail).style(theme::sidebar).height(Length::Fill).into()
 }

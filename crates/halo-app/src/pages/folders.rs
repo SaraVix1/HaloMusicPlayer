@@ -131,24 +131,24 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     let st = &app.pages.folders;
 
     // ── Left list ─────────────────────────────────────────────────────────────
-    let mut head = row![text("Folders").size(theme::TEXT_SM).font(theme::SEMIBOLD), ui::fill()]
+    let mut head = row![text("Folders").size(theme::BODY).font(theme::SEMIBOLD), ui::fill()]
         .align_y(Alignment::Center);
     if !st.leaves.is_empty() {
         head = head.push(ui::muted(
             plural(st.leaves.len() as i64, "folder", "folders"),
-            theme::TEXT_XS,
+            theme::SMALL,
         ));
     }
     let head = container(head).padding(Padding::from([12.0, 16.0])).height(45);
 
     let list: Element<'_, Message> = if st.rows.loading {
-        container(ui::muted("Loading…", theme::TEXT_XS)).padding(16).into()
+        container(ui::muted("Loading…", theme::SMALL)).padding(16).into()
     } else if let Some(e) = &st.rows.error {
-        container(text(e.as_str()).size(theme::TEXT_XS).color(k.destructive))
+        container(text(e.as_str()).size(theme::SMALL).color(k.destructive))
             .padding(16)
             .into()
     } else if st.leaves.is_empty() {
-        container(ui::muted("No managed folders yet — add one in Settings.", theme::TEXT_XS))
+        container(ui::muted("No managed folders yet — add one in Settings.", theme::SMALL))
             .padding(16)
             .into()
     } else {
@@ -159,9 +159,9 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             let content = row![
                 icon(Icon::Folder, 15.0).color(if selected { k.accent_fg } else { k.muted_fg }),
                 column![
-                    line(leaf.name.as_str()).size(theme::TEXT_SM).font(theme::MEDIUM).width(Length::Fill),
+                    line(leaf.name.as_str()).size(theme::BODY).font(theme::MEDIUM).width(Length::Fill),
                     text(plural(leaf.tracks.len() as i64, "track", "tracks"))
-                        .size(theme::TEXT_XS)
+                        .size(theme::SMALL)
                         .color(sub_c),
                 ]
                 .spacing(2)
@@ -205,7 +205,7 @@ fn detail<'a>(app: &'a Halo, leaf: &'a Leaf) -> Element<'a, Message> {
 
     let small_btn = |lead: Element<'a, Message>, label: &'static str, primary: bool, msg: Message| {
         button(
-            row![lead, text(label).size(theme::TEXT_XS)]
+            row![lead, text(label).size(theme::SMALL)]
                 .spacing(6)
                 .align_y(Alignment::Center),
         )
@@ -225,13 +225,13 @@ fn detail<'a>(app: &'a Halo, leaf: &'a Leaf) -> Element<'a, Message> {
     let header = row![
         art(art_path, 64.0, theme::R_MD),
         column![
-            line(leaf.name.as_str()).size(theme::TEXT_BASE).font(theme::SEMIBOLD).width(Length::Fill),
+            line(leaf.name.as_str()).size(theme::BODY).font(theme::SEMIBOLD).width(Length::Fill),
             text(format!(
                 "{} · {}",
                 plural(leaf.tracks.len() as i64, "track", "tracks"),
                 duration(Some(total))
             ))
-            .size(theme::TEXT_XS)
+            .size(theme::SMALL)
             .color(k.muted_fg),
             ui::vspace(8.0),
             row![
@@ -267,12 +267,12 @@ fn detail<'a>(app: &'a Halo, leaf: &'a Leaf) -> Element<'a, Message> {
                 .to_string()
         });
         let content = row![
-            container(text((i + 1).to_string()).size(theme::TEXT_XS).color(k.muted_fg))
+            container(text((i + 1).to_string()).size(theme::SMALL).color(k.muted_fg))
                 .width(20)
                 .align_x(Alignment::End),
             icon(Icon::Music, 13.0).color(k.muted_fg),
-            line(title).size(theme::TEXT_SM).width(Length::Fill),
-            text(duration(tr.duration_ms)).size(theme::TEXT_XS).color(k.muted_fg),
+            line(title).size(theme::BODY).width(Length::Fill),
+            text(duration(tr.duration_ms)).size(theme::SMALL).color(k.muted_fg),
         ]
         .spacing(12)
         .align_y(Alignment::Center);

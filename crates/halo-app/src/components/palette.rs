@@ -280,7 +280,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             .id(INPUT_ID)
             .on_input(|q| pm(Msg::Query(q)))
             .on_submit(pm(Msg::Activate))
-            .size(theme::TEXT_SM)
+            .size(theme::BODY)
             .padding(Padding::from([6.0, 0.0]))
             .style(theme::input_bare)
             .width(Length::Fill),
@@ -291,13 +291,13 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     let input_row = container(input_row).padding(Padding::from([8.0, 12.0]));
 
     let body: Element<'_, Message> = if st.results.is_none() {
-        container(ui::muted("Start typing to search.", theme::TEXT_SM))
+        container(ui::muted("Start typing to search.", theme::BODY))
             .width(Length::Fill)
             .padding(Padding::from([24.0, 12.0]))
             .align_x(Alignment::Center)
             .into()
     } else if rows.is_empty() {
-        container(ui::muted(format!("No results for \"{}\".", st.query), theme::TEXT_SM))
+        container(ui::muted(format!("No results for \"{}\".", st.query), theme::BODY))
             .width(Length::Fill)
             .padding(Padding::from([24.0, 12.0]))
             .align_x(Alignment::Center)
@@ -311,7 +311,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                 col = col.push(
                     container(
                         text(r.group().to_uppercase())
-                            .size(theme::TEXT_10)
+                            .size(theme::SMALL)
                             .font(theme::MEDIUM)
                             .color(k.muted_fg),
                     )
@@ -329,9 +329,9 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             let content = row![
                 lead,
                 column![
-                    line(title).size(theme::TEXT_SM).width(Length::Fill),
+                    line(title).size(theme::BODY).width(Length::Fill),
                     line(if sub.is_empty() { "—".to_string() } else { sub })
-                        .size(theme::TEXT_XS)
+                        .size(theme::SMALL)
                         .color(k.muted_fg)
                         .width(Length::Fill),
                 ]

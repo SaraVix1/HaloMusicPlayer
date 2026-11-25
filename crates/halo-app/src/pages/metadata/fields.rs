@@ -44,7 +44,7 @@ fn input<'a>(placeholder: &'a str, value: &'a str, f: Field) -> text_input::Text
     text_input(placeholder, value)
         .on_input(move |v| mm(Msg::Field(f, v)))
         .on_submit(mm(Msg::Save))
-        .size(theme::TEXT_SM)
+        .size(theme::BODY)
         .padding(Padding::from([4.0, 8.0]))
         .style(theme::input_muted)
 }
@@ -53,7 +53,7 @@ fn numeric<'a>(placeholder: &'a str, value: &'a str, f: Field) -> text_input::Te
     text_input(placeholder, value)
         .on_input(move |v| mm(Msg::Field(f, v.chars().filter(|c| c.is_ascii_digit()).collect())))
         .on_submit(mm(Msg::Save))
-        .size(theme::TEXT_SM)
+        .size(theme::BODY)
         .padding(Padding::from([4.0, 8.0]))
         .style(theme::input_muted)
 }
@@ -61,7 +61,7 @@ fn numeric<'a>(placeholder: &'a str, value: &'a str, f: Field) -> text_input::Te
 /// Labelled field (`text-xs text-muted-foreground font-medium` label).
 fn f<'a>(label: &'a str, el: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
     column![
-        text(label).size(theme::TEXT_XS).font(theme::MEDIUM).color(t().muted_fg),
+        text(label).size(theme::SMALL).font(theme::MEDIUM).color(t().muted_fg),
         el.into(),
     ]
     .spacing(4)
@@ -76,7 +76,7 @@ fn pair<'a>(a: Element<'a, Message>, b: Element<'a, Message>) -> Element<'a, Mes
 fn slash<'a>(a: text_input::TextInput<'a, Message>, b: text_input::TextInput<'a, Message>) -> Element<'a, Message> {
     row![
         a.width(Length::Fill),
-        text("/").size(theme::TEXT_XS).color(t().muted_fg),
+        text("/").size(theme::SMALL).color(t().muted_fg),
         b.width(Length::Fill),
     ]
     .spacing(4)
@@ -103,7 +103,7 @@ pub fn view<'a>(app: &'a Halo, d: &'a Draft) -> Element<'a, Message> {
         let mut chips = row![].spacing(4);
         for (code, label) in suggestions {
             chips = chips.push(
-                button(text(format!("{code} · {label}")).size(theme::TEXT_XS))
+                button(text(format!("{code} · {label}")).size(theme::SMALL))
                     .padding(Padding::from([2.0, 8.0]))
                     .style(theme::btn_chip(false, theme::R_FULL))
                     .on_press(mm(Msg::Field(Field::Language, code.to_string()))),
@@ -139,7 +139,7 @@ pub fn view<'a>(app: &'a Halo, d: &'a Draft) -> Element<'a, Message> {
             text_editor(&d.comment)
                 .on_action(|a| mm(Msg::Comment(a)))
                 .placeholder("Comment")
-                .size(theme::TEXT_SM)
+                .size(theme::BODY)
                 .padding(Padding::from([4.0, 8.0]))
                 .height(52)
                 .style(theme::editor),

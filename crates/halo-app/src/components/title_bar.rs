@@ -7,10 +7,9 @@ use iced::{window, Alignment, Element, Length, Padding};
 use crate::app::{Halo, Message};
 use crate::icons::Icon;
 use crate::theme::{self, a, t};
-use crate::ui::{hline, icon_box, tip};
+use crate::ui::{icon_box, tip};
 
 pub fn view(app: &Halo, id: window::Id) -> Element<'_, Message> {
-    let k = t();
     let can_back = app.history.can_back();
     let can_fwd = app.history.can_forward();
 
@@ -40,7 +39,7 @@ pub fn view(app: &Halo, id: window::Id) -> Element<'_, Message> {
     .align_y(Alignment::Center);
 
     let drag = mouse_area(
-        container(text("Halo").size(theme::TEXT_SM).font(theme::SEMIBOLD))
+        container(text("Halo").size(theme::BODY).font(theme::SEMIBOLD))
             .padding(Padding::from([0.0, 12.0]))
             .width(Length::Fill)
             .height(Length::Fill)
@@ -78,13 +77,5 @@ pub fn view(app: &Halo, id: window::Id) -> Element<'_, Message> {
         .width(Length::Fill)
         .align_y(Alignment::Center);
 
-    iced::widget::column![
-        container(bar).style(move |_| container::Style {
-            background: Some(k.background.into()),
-            text_color: Some(k.foreground),
-            ..container::Style::default()
-        }),
-        hline(),
-    ]
-    .into()
+    container(bar).style(theme::frame).into()
 }

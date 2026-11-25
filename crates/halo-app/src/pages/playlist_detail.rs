@@ -215,7 +215,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     let k = t();
     let st = &app.pages.playlist;
     let back = button(
-        row![icon(Icon::ArrowLeft, 12.0), text("Playlists").size(theme::TEXT_XS)]
+        row![icon(Icon::ArrowLeft, 12.0), text("Playlists").size(theme::SMALL)]
             .spacing(4)
             .align_y(Alignment::Center),
     )
@@ -240,7 +240,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                 .id(RENAME_INPUT)
                 .on_input(|s| dm(DMsg::RenameChanged(s)))
                 .on_submit(dm(DMsg::SaveRename))
-                .size(theme::TEXT_XL)
+                .size(theme::TITLE)
                 .font(theme::SEMIBOLD)
                 .padding(Padding::from([4.0, 0.0]))
                 .style(theme::input_underline)
@@ -253,7 +253,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         .into()
     } else {
         row![
-            line(p.name.as_str()).size(theme::TEXT_2XL).font(theme::SEMIBOLD),
+            line(p.name.as_str()).size(theme::TITLE).font(theme::SEMIBOLD),
             button(icon(Icon::Pencil, 14.0))
                 .padding(0)
                 .style(theme::btn_icon)
@@ -267,7 +267,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     let ids: Vec<i64> = st.tracks.iter().map(|t| t.track_id).collect();
     let btn = |ic: Icon, label: &'static str, style: fn(&iced::Theme, button::Status) -> button::Style, msg: Option<Message>| {
         button(
-            row![icon(ic, 14.0), text(label).size(theme::TEXT_SM)]
+            row![icon(ic, 14.0), text(label).size(theme::BODY)]
                 .spacing(6)
                 .align_y(Alignment::Center),
         )
@@ -306,7 +306,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             }),
         column![
             title,
-            ui::muted(plural(p.track_count, "track", "tracks"), theme::TEXT_SM),
+            ui::muted(plural(p.track_count, "track", "tracks"), theme::BODY),
             ui::vspace(8.0),
             actions,
         ]
@@ -323,12 +323,12 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     if !has {
         col = col.push(
             row![
-                ui::muted("This playlist is empty. Add songs from ", theme::TEXT_SM),
-                button(text("All Songs").size(theme::TEXT_SM))
+                ui::muted("This playlist is empty. Add songs from ", theme::BODY),
+                button(text("All Songs").size(theme::BODY))
                     .padding(0)
                     .style(theme::btn_link)
                     .on_press(Message::Navigate(Route::default())),
-                ui::muted(".", theme::TEXT_SM),
+                ui::muted(".", theme::BODY),
             ]
             .wrap(),
         );
@@ -351,7 +351,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         }
         let base = row![
             ui::hspace(20.0),
-            container(text((idx + 1).to_string()).size(theme::TEXT_XS).color(k.muted_fg))
+            container(text((idx + 1).to_string()).size(theme::SMALL).color(k.muted_fg))
                 .width(24)
                 .align_x(Alignment::End),
             button(icon_box(if is_playing { Icon::Pause } else { Icon::Play }, 14.0, 28.0, 28.0))
@@ -361,13 +361,13 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             art(r.album_art_path.as_deref(), 32.0, theme::R_SM),
             column![
                 line(title)
-                    .size(theme::TEXT_SM)
+                    .size(theme::BODY)
                     .font(if is_current { theme::MEDIUM } else { theme::SANS })
                     .width(Length::Fill),
-                line(sub).size(theme::TEXT_XS).color(k.muted_fg).width(Length::Fill),
+                line(sub).size(theme::SMALL).color(k.muted_fg).width(Length::Fill),
             ]
             .width(Length::Fill),
-            container(text(duration(r.duration_ms)).size(theme::TEXT_XS).color(k.muted_fg))
+            container(text(duration(r.duration_ms)).size(theme::SMALL).color(k.muted_fg))
                 .width(48)
                 .align_x(Alignment::End),
             ui::hspace(28.0),

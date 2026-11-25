@@ -197,8 +197,8 @@ pub fn sort_button<'a>(app: &'a Halo, options: Vec<(SortBy, &'static str)>, cur:
     let arrow = if cur.desc { Icon::ArrowDown } else { Icon::ArrowUp };
     let btn = button(
         row![
-            ui::muted("Sort:", theme::TEXT_SM),
-            text(sort::label(&options, cur.by)).size(theme::TEXT_SM).font(theme::MEDIUM),
+            ui::muted("Sort:", theme::BODY),
+            text(sort::label(&options, cur.by)).size(theme::BODY).font(theme::MEDIUM),
             icon(arrow, 12.0),
             icon(Icon::ChevronDown, 12.0),
         ]
@@ -212,7 +212,7 @@ pub fn sort_button<'a>(app: &'a Halo, options: Vec<(SortBy, &'static str)>, cur:
         let mut col = column![].width(200);
         for (by, label) in options {
             let active = by == cur.by;
-            let mut r = row![text(label).size(theme::TEXT_SM), ui::fill()].align_y(Alignment::Center);
+            let mut r = row![text(label).size(theme::BODY), ui::fill()].align_y(Alignment::Center);
             if active {
                 r = r.push(icon(arrow, 12.0));
             }
@@ -238,7 +238,7 @@ fn menu_box<'a>(col: iced::widget::Column<'a, Message>) -> Element<'a, Message> 
         .padding(4)
         .style(|th| {
             let mut s = theme::popover(th);
-            s.border.radius = theme::radius(theme::R_MD);
+            s.border.radius = theme::radius(theme::R_LG);
             s
         })
         .into()
@@ -397,13 +397,13 @@ pub fn tabbed<'a>(app: &'a Halo, tab: LibraryTab, body: Element<'a, Message>) ->
     let lm = |m: LMsg| Message::Page(Msg::Library(m));
     let mut tabs = row![].spacing(4).align_y(Alignment::End);
     for tb in MAIN_TABS {
-        tabs = tabs.push(tab_button(text(tb.label()).size(theme::TEXT_SM).font(theme::MEDIUM).into(), tb == tab, lm(LMsg::OpenTab(tb))));
+        tabs = tabs.push(tab_button(text(tb.label()).size(theme::BODY).font(theme::MEDIUM).into(), tb == tab, lm(LMsg::OpenTab(tb))));
     }
 
     // "More ▾": shows the open tab's name when it is one of these.
     let in_more = MORE_TABS.contains(&tab);
     let more_label = row![
-        text(if in_more { tab.label() } else { "More" }).size(theme::TEXT_SM).font(theme::MEDIUM),
+        text(if in_more { tab.label() } else { "More" }).size(theme::BODY).font(theme::MEDIUM),
         icon(Icon::ChevronDown, 12.0),
     ]
     .spacing(4)
@@ -412,7 +412,7 @@ pub fn tabbed<'a>(app: &'a Halo, tab: LibraryTab, body: Element<'a, Message>) ->
         let mut col = column![].width(180);
         for tb in MORE_TABS {
             col = col.push(
-                button(text(tb.label()).size(theme::TEXT_SM))
+                button(text(tb.label()).size(theme::BODY))
                     .width(Length::Fill)
                     .padding(Padding::from([6.0, 12.0]))
                     .style(theme::btn_list_item(tb == tab, theme::R_SM))
