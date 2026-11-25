@@ -345,7 +345,7 @@ pub fn on_loaded(app: &mut Halo, l: Loaded) {
 /// Loading / error / empty states, else the virtualised grid of `c`.
 pub fn coll_grid<'a, T>(
     c: &'a Coll<T>,
-    empty: &'a str,
+    empty: Element<'a, Message>,
     mut spec: GridSpec,
     key: String,
     memory: &'a ScrollMemory,
@@ -364,7 +364,7 @@ pub fn coll_grid<'a, T>(
         return pad(common::error_text(e));
     }
     if c.items.is_empty() {
-        return pad(note(empty));
+        return pad(empty);
     }
     if let Some(p) = padding_top {
         spec.padding_top = p;

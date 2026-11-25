@@ -70,8 +70,9 @@ pub fn person_card<'a>(
     menu: crate::components::context_menu::Target,
 ) -> Element<'a, Message> {
     let k = t();
+    let inner = (side - 2.0 * theme::CARD_PAD).max(0.0);
     let content = column![
-        container(avatar(name, art_path)).width(side).height(side),
+        container(avatar(name, art_path)).width(inner).height(inner),
         column![
             container(line(name).size(theme::BODY).font(theme::MEDIUM))
                 .width(Length::Fill)
@@ -85,14 +86,11 @@ pub fn person_card<'a>(
     .align_x(Alignment::Center);
     surface(content)
         .width(Length::Fill)
+        .padding(theme::CARD_PAD)
         .on_press(Message::Navigate(route))
         .on_right_press(crate::components::context_menu::opener(menu))
         .interaction(iced::mouse::Interaction::Pointer)
-        .style(|s| iced::widget::container::Style {
-            background: s.hovered.then(|| a(t().background, 0.1).into()),
-            text_color: Some(t().foreground),
-            ..Default::default()
-        })
+        .style(|s| theme::card(s.hovered))
         .into()
 }
 

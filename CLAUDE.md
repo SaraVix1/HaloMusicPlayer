@@ -82,6 +82,8 @@ crates/
         ├── icons.rs            # Lucide icon font glyphs (Icon enum → codepoint)
         ├── ui.rs               # small builders: tooltip, art, stars, toggle, modal, progress, spinners…
         ├── format.rs           # duration / relative time / plural helpers
+        ├── fade.rs             # cover cross-fade + accent glide on song change (tick only while running)
+        ├── shortcuts.rs        # Space / ←→ / Ctrl+←→ / Ctrl+L and which keys reach on_key (not while typing)
         ├── tray.rs             # tray-icon + menu (GTK thread on Linux), events subscription
         ├── single_instance.rs  # local socket: forward argv/cwd to the running instance
         ├── widgets/            # custom widgets: textline (ellipsis/marquee), surface (hover/click

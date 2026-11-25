@@ -19,7 +19,7 @@ use crate::app::{Halo, Message, PlayerCmd};
 use crate::format::duration_u;
 use crate::icons::{icon, Icon};
 use crate::theme::{self, a, t};
-use crate::ui::{art, icon_box};
+use crate::ui::icon_box;
 use crate::widgets::line;
 
 const ART: f32 = 30.0;
@@ -337,7 +337,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             .into(),
     };
     let default_layer = row![
-        art(track.and_then(|t| t.album_art_path.as_deref()), ART, 0.0),
+        app.fades.cover(track.and_then(|t| t.album_art_path.as_deref()), ART, 0.0),
         column![l1, l2].spacing(1).width(Length::Fill).padding(Padding::ZERO.bottom(2.0)),
     ]
     .spacing(8)

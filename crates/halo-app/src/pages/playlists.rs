@@ -342,11 +342,16 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     if st.loading {
         col = col.push(note("Loading…"));
     } else if empty {
-        col = col.push(note(if st.filter == Filter::Smart {
-            "No smart playlists yet."
+        col = col.push(if st.filter == Filter::Smart {
+            note("No smart playlists yet.")
         } else {
-            "No playlists yet. Create one to organize tracks."
-        }));
+            common::empty_state(
+                Icon::ListMusic,
+                "No playlists yet",
+                "Collect songs you like in a playlist.",
+                Some(("New playlist", pm(PMsg::StartCreate(NewKind::Manual)))),
+            )
+        });
     } else {
         col = col.push(card_grid(app));
     }

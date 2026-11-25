@@ -489,6 +489,19 @@ pub fn divider_alpha(alpha: f32) -> impl Fn(&Theme) -> container::Style {
     }
 }
 
+/// Album / artist card hover: the same soft rounded highlight as song rows.
+pub fn card(hovered: bool) -> container::Style {
+    container::Style {
+        background: hovered.then(|| a(t().muted, 0.35).into()),
+        text_color: Some(t().foreground),
+        border: no_border(R_LG),
+        ..container::Style::default()
+    }
+}
+
+/// Padding inside a card's hover highlight.
+pub const CARD_PAD: f32 = 8.0;
+
 /// Queue panel: raised surface with a soft shadow on its left edge.
 pub fn side_panel(_: &Theme) -> container::Style {
     let k = t();

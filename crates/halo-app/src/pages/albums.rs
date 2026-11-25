@@ -12,7 +12,7 @@ use crate::app::{bg, Halo, Message};
 use crate::format::plural;
 use crate::icons::{icon, Icon};
 use crate::route::Route;
-use crate::theme::{self, a, t};
+use crate::theme::{self, t};
 use crate::ui::art_sized;
 use crate::widgets::{line, surface};
 
@@ -75,25 +75,7 @@ pub(crate) fn album_card(al: &Album, side: f32) -> Element<'_, Message> {
     } else {
         al.album_artists.join(", ")
     };
-    let cover = surface(art_sized(
-        al.album_art_path.as_deref(),
-        Length::Fill,
-        Length::Fill,
-        160.0,
-        theme::R_LG,
-    ))
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .on_press(Message::Navigate(album_route(&name)))
-    .on_right_press(crate::components::context_menu::opener(
-        crate::components::context_menu::Target::Album { name: name.clone(), artists: al.album_artists.clone() },
-    ))
-    .interaction(iced::mouse::Interaction::Pointer)
-    .style(|s| iced::widget::container::Style {
-        // group-hover:opacity-80 — veil with the page background.
-        background: s.hovered.then(|| a(t().background, 0.2).into()),
-        ..Default::default()
-    });
+    let cover = art_sized(al.album_art_path.as_deref(), Length::Fill, Length::Fill, 160.0, theme::R_LG);
     let play_btn = button(
         center(container(icon(Icon::Play, 16.0)).padding(Padding::ZERO.left(2.0)))
             .width(40)
@@ -117,28 +99,36 @@ pub(crate) fn album_card(al: &Album, side: f32) -> Element<'_, Message> {
         container(cover).width(Length::Fill).height(Length::Fill),
         container(play_layer).width(Length::Fill).height(Length::Fill),
     );
-    // aspect-square: the art is as tall as the column is wide.
-    let art_box = container(art_box).width(Length::Fill).height(side);
-    column![
+    // aspect-square: the art is as tall as the card's inner width.
+    let art_box = container(art_box).width(Length::Fill).height((side - 2.0 * theme::CARD_PAD).max(0.0));
+    let content = column![
         art_box,
         column![
-            button(line(al.name.clone()).size(theme::BODY).font(theme::MEDIUM))
-                .padding(0)
-                .style(theme::btn_text(k.foreground, k.foreground))
-                .on_press(Message::Navigate(album_route(&name))),
+            line(al.name.clone()).size(theme::BODY).font(theme::MEDIUM).width(Length::Fill),
             line(sub).size(theme::SMALL).color(k.muted_fg).width(Length::Fill),
         ]
         .spacing(0),
     ]
-    .spacing(8)
-    .into()
+    .spacing(8);
+    // The whole card highlights on hover (like song rows) and opens the
+    // album; the ▶ button still plays it.
+    surface(content)
+        .width(Length::Fill)
+        .padding(theme::CARD_PAD)
+        .on_press(Message::Navigate(album_route(&name)))
+        .on_right_press(crate::components::context_menu::opener(
+            crate::components::context_menu::Target::Album { name: name.clone(), artists: al.album_artists.clone() },
+        ))
+        .interaction(iced::mouse::Interaction::Pointer)
+        .style(|s| theme::card(s.hovered))
+        .into()
 }
 
 /// Albums grid (the Library page's Albums tab).
 pub fn grid(app: &Halo, key: String, padding_top: Option<f32>) -> Element<'_, Message> {
     coll_grid(
         &app.pages.library.albums,
-        "No albums yet — scan a folder to populate the library.",
+        crate::pages::common::empty_or_note(app, "No albums yet."),
         ALBUMS,
         key,
         &app.pages.scroll,

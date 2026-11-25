@@ -12,7 +12,7 @@ use crate::route::Route;
 pub fn grid(app: &Halo, key: String, padding_top: Option<f32>) -> Element<'_, Message> {
     coll_grid(
         &app.pages.library.composers,
-        "No composers yet — scan a folder to get started.",
+        crate::pages::common::empty_or_note(app, "No composers yet."),
         TILES,
         key,
         &app.pages.scroll,

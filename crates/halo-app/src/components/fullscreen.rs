@@ -16,7 +16,7 @@ use crate::components::{lyrics, now_playing};
 use crate::format::duration_u;
 use crate::icons::{icon, Icon};
 use crate::theme::{self, a, t};
-use crate::ui::{art, icon_box, stars, tip};
+use crate::ui::{icon_box, stars, tip};
 use crate::widgets::{line, waveform};
 
 /// Side of the shrunken cover that gets blurred (then stretched to fill).
@@ -31,6 +31,9 @@ pub struct State {
     pub os_fullscreen: bool,
     /// Blurred background for this track id.
     bg: Option<(Option<i64>, image::Handle)>,
+    /// The previous track's background, fading out under the new one.
+    prev_bg: Option<image::Handle>,
+    bg_start: Option<std::time::Instant>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,6 +42,7 @@ pub enum Msg {
     Close,
     ToggleOsFullscreen,
     FindLyrics,
+    Tick,
     Background(Option<i64>, Option<(u32, u32, Vec<u8>)>),
 }
 
@@ -68,13 +72,24 @@ pub fn update(app: &mut Halo, m: Msg) -> Task<Message> {
             let mode = if st.os_fullscreen { window::Mode::Fullscreen } else { window::Mode::Windowed };
             window::set_mode(id, mode)
         }
+        Msg::Tick => {
+            let st = &mut app.fullscreen;
+            if st.bg_start.is_some_and(|s| s.elapsed() >= crate::fade::ART) {
+                st.bg_start = None;
+                st.prev_bg = None;
+            }
+            Task::none()
+        }
         Msg::FindLyrics => {
             let task = close(app);
             Task::batch([task, lyrics::open(app)])
         }
         Msg::Background(id, img) => {
             if app.fullscreen.open && id == current_id(app) {
-                app.fullscreen.bg = img.map(|(w, h, px)| (id, image::Handle::from_rgba(w, h, px)));
+                let st = &mut app.fullscreen;
+                st.prev_bg = st.bg.take().map(|(_, h)| h);
+                st.bg = img.map(|(w, h, px)| (id, image::Handle::from_rgba(w, h, px)));
+                st.bg_start = st.prev_bg.is_some().then(std::time::Instant::now);
             }
             Task::none()
         }
@@ -87,13 +102,22 @@ fn close(app: &mut Halo) -> Task<Message> {
         return Task::none();
     }
     st.open = false;
-    st.bg = None; // free the image
+    st.bg = None; // free the images
+    st.prev_bg = None;
+    st.bg_start = None;
     let leave_os = std::mem::take(&mut st.os_fullscreen);
     app.apply_theme();
     match (leave_os, app.main_id) {
         (true, Some(id)) => window::set_mode(id, window::Mode::Windowed),
         _ => Task::none(),
     }
+}
+
+/// Redraw ticks while a new background fades in.
+pub fn subscription(app: &Halo) -> Option<iced::Subscription<Message>> {
+    let start = app.fullscreen.bg_start?;
+    (app.fullscreen.open && start.elapsed() < crate::fade::ART)
+        .then(|| iced::time::every(std::time::Duration::from_millis(16)).map(|_| fm(Msg::Tick)))
 }
 
 fn current_id(app: &Halo) -> Option<i64> {
@@ -114,7 +138,8 @@ fn load_background(app: &mut Halo) -> Task<Message> {
     if app.fullscreen.bg.as_ref().is_some_and(|(bid, _)| *bid == id) {
         return Task::none();
     }
-    app.fullscreen.bg = None;
+    // Keep the old background on screen until the new one is ready (it
+    // fades in over it).
     let path = app
         .player
         .current_track
@@ -123,7 +148,14 @@ fn load_background(app: &mut Halo) -> Task<Message> {
         .filter(|p| !p.is_empty());
     match path {
         Some(p) => bg(&app.backend, move |_| blurred(&p), move |img| fm(Msg::Background(id, img))),
-        None => Task::none(),
+        // No cover: drop the previous song's background (accent backdrop).
+        None => {
+            let st = &mut app.fullscreen;
+            st.bg = None;
+            st.prev_bg = None;
+            st.bg_start = None;
+            Task::none()
+        }
     }
 }
 
@@ -144,13 +176,20 @@ fn blur_rgba(img: &::image::RgbaImage) -> (u32, u32, Vec<u8>) {
 /// The whole main window while the view is open (`title_bar` on top).
 pub fn view<'a>(app: &'a Halo, title_bar: Element<'a, Message>) -> Element<'a, Message> {
     let k = t();
-    // Background: blurred art (or the accent, darkened) under a scrim.
-    let backdrop: Element<'a, Message> = match &app.fullscreen.bg {
-        Some((_, h)) => image(h.clone())
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .content_fit(iced::ContentFit::Cover)
-            .into(),
+    // Background: blurred art (or the accent, darkened) under a scrim; a
+    // new background fades in over the previous one.
+    let st = &app.fullscreen;
+    let blur = |h: &image::Handle, o: f32| {
+        image(h.clone()).width(Length::Fill).height(Length::Fill).content_fit(iced::ContentFit::Cover).opacity(o)
+    };
+    let backdrop: Element<'a, Message> = match &st.bg {
+        Some((_, h)) => match (&st.prev_bg, st.bg_start) {
+            (Some(prev), Some(start)) => {
+                let p = crate::fade::eased(start.elapsed(), crate::fade::ART);
+                stack![blur(prev, 1.0), blur(h, p)].into()
+            }
+            _ => blur(h, 1.0).into(),
+        },
         None => container(Space::new())
             .width(Length::Fill)
             .height(Length::Fill)
@@ -200,7 +239,7 @@ fn main_area(app: &Halo, size: iced::Size) -> Element<'_, Message> {
             sub.push(al);
         }
     }
-    let cover = button(art(track.and_then(|t| t.album_art_path.as_deref()), side, theme::R_LG))
+    let cover = button(app.fades.cover(track.and_then(|t| t.album_art_path.as_deref()), side, theme::R_LG))
         .padding(0)
         .style(theme::btn_bare)
         .on_press(fm(Msg::Close));

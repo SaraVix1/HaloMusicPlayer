@@ -14,7 +14,7 @@ use crate::format::{countdown, duration_u};
 use crate::icons::{icon, Icon};
 use crate::route::{Route, SettingsTab};
 use crate::theme::{self, a, t};
-use crate::ui::{self, art, filled, icon_box, tip, Filled};
+use crate::ui::{self, filled, icon_box, tip, Filled};
 use crate::widgets::{line, popover, waveform, Placement};
 
 const PRESETS: [u64; 6] = [5, 10, 15, 30, 45, 60];
@@ -271,7 +271,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     });
 
     // Clicking the cover opens full-screen now playing.
-    let cover = button(art(track.and_then(|t| t.album_art_path.as_deref()), 48.0, theme::R_SM))
+    let cover = button(app.fades.cover(track.and_then(|t| t.album_art_path.as_deref()), 48.0, theme::R_SM))
         .padding(0)
         .style(theme::btn_bare)
         .on_press_maybe(has_track.then(crate::components::fullscreen::open_message));
@@ -349,9 +349,9 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             "Shuffle",
             Message::Player(PlayerCmd::SetShuffle(!p.shuffle))
         ),
-        tip(skip(Icon::SkipBack, PlayerCmd::Previous), "Previous", Position::Top),
-        play,
-        tip(skip(Icon::SkipForward, PlayerCmd::Next), "Next", Position::Top),
+        tip(skip(Icon::SkipBack, PlayerCmd::Previous), "Previous (Ctrl+←)", Position::Top),
+        tip(play, if is_playing { "Pause (Space)" } else { "Play (Space)" }, Position::Top),
+        tip(skip(Icon::SkipForward, PlayerCmd::Next), "Next (Ctrl+→)", Position::Top),
         mode_btn(
             if p.repeat == RepeatMode::One { Icon::Repeat1 } else { Icon::Repeat },
             p.repeat != RepeatMode::Off,
@@ -406,7 +406,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                 Box::new(theme::btn_icon)
             })
             .on_press(np(Msg::ToggleLyrics)),
-        "Lyrics",
+        "Lyrics (Ctrl+L)",
         Position::Top,
     ));
     right = right.push(tip(

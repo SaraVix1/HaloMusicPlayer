@@ -242,6 +242,11 @@ fn file_exists(path: &str) -> bool {
     })
 }
 
+/// The art file exists (cached check).
+pub fn art_exists(path: &str) -> bool {
+    !path.is_empty() && file_exists(path)
+}
+
 /// Forget cached existence checks (after a rescan / art edit).
 pub fn invalidate_art_cache() {
     EXISTS.with(|m| m.borrow_mut().clear());

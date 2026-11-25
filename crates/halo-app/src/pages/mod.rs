@@ -46,6 +46,8 @@ use crate::route::{LibraryTab, Route};
 pub struct Pages {
     pub scroll: common::ScrollMemory,
     pub home: home::HomeState,
+    /// Songs in the library (None until counted): empty-library states.
+    pub library_count: Option<i64>,
     pub songs: tracks::TrackList,
     pub songs_query: Option<TracksQuery>,
     pub recent: tracks::TrackList,
@@ -65,6 +67,7 @@ pub enum Msg {
     StarHover(Option<(i64, u8)>),
 
     HomeLoaded(Result<halo_backend::commands::library::HomeShelves, String>),
+    LibraryCount(i64),
     SongsLoaded(TracksQuery, Result<Vec<Track>, String>),
     RecentLoaded(Result<Vec<Track>, String>),
     MostLoaded(Result<Vec<Track>, String>),
@@ -102,6 +105,10 @@ pub fn update(app: &mut Halo, msg: Msg) -> Task<Message> {
             Task::none()
         }
 
+        Msg::LibraryCount(n) => {
+            app.pages.library_count = Some(n);
+            Task::none()
+        }
         Msg::HomeLoaded(r) => {
             home::on_loaded(app, r);
             Task::none()
@@ -272,13 +279,24 @@ pub fn on_navigate(app: &mut Halo, _prev: Route) -> Task<Message> {
     on_enter(app)
 }
 
+/// Count the library's songs (startup and after it changes).
+pub fn load_library_count(app: &Halo) -> Task<Message> {
+    crate::app::bg(
+        &app.backend,
+        |b| halo_backend::commands::library::track_count(b.db()).unwrap_or(0),
+        |n| Message::Page(Msg::LibraryCount(n)),
+    )
+}
+
 /// `library-changed`: reload what's on screen.
 pub fn on_library_changed(app: &mut Halo) -> Task<Message> {
-    match app.route() {
+    let count = load_library_count(app);
+    let reload = match app.route() {
         Route::SmartPlaylist(_) => smart_playlist::reload_tracks(app),
         Route::Settings(_) => Task::none(),
         _ => on_enter(app),
-    }
+    };
+    Task::batch([count, reload])
 }
 
 /// A playlist was created / renamed / changed: refresh the list next time.

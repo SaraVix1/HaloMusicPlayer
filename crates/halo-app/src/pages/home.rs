@@ -4,7 +4,7 @@
 
 use halo_backend::commands::library::{self, Album, HomeShelves};
 use iced::widget::{button, column, container, responsive, row, text};
-use iced::{Alignment, Element, Length, Padding, Task};
+use iced::{Alignment, Element, Padding, Task};
 
 use super::albums::album_card;
 use super::common::{self, note};
@@ -12,7 +12,7 @@ use super::Msg;
 use crate::app::{bg, Halo, Message};
 use crate::components::palette;
 use crate::icons::{icon, Icon};
-use crate::route::{Route, SettingsTab};
+use crate::route::Route;
 use crate::theme::{self, t};
 use crate::ui;
 
@@ -88,7 +88,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         } else if let Some(e) = &st.error {
             col = col.push(common::error_text(e));
         } else if st.loaded && st.shelves.library_tracks == 0 {
-            col = col.push(empty_state());
+            col = col.push(common::library_empty());
         } else {
             let s = &st.shelves;
             for (title, albums, all) in [
@@ -148,25 +148,6 @@ fn shelf<'a>(title: &'a str, albums: &'a [Album], all: Route, n: usize, side: f3
     column![head, cards].spacing(12).into()
 }
 
-fn empty_state<'a>() -> Element<'a, Message> {
-    let k = t();
-    let content = column![
-        icon(Icon::Music, 40.0).color(k.muted_fg),
-        text("No songs yet").size(theme::TITLE).font(theme::SEMIBOLD),
-        ui::muted("Add a music folder and Halo will build your library.", theme::BODY),
-        button(text("Add a music folder").size(theme::BODY))
-            .padding(Padding::from([8.0, 16.0]))
-            .style(theme::btn_primary)
-            .on_press(Message::Navigate(Route::Settings(Some(SettingsTab::Library)))),
-    ]
-    .spacing(12)
-    .align_x(Alignment::Center);
-    container(content)
-        .width(Length::Fill)
-        .padding(Padding::ZERO.top(64.0))
-        .align_x(Alignment::Center)
-        .into()
-}
 
 #[cfg(test)]
 mod tests {
