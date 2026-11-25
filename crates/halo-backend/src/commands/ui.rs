@@ -49,6 +49,19 @@ pub fn get_pref(key: String, db: &Mutex<Connection>) -> Result<Option<String>, S
     }
 }
 
+/// Read one pref straight from the database file, before `Backend::start`
+/// (no migrations, no threads), for choices that must be made before the UI
+/// starts (the renderer). `None`: no database yet, or no such key.
+pub fn read_pref_early(key: &str) -> Option<String> {
+    let path = crate::AppPaths::resolve().ok()?.data_dir.join("halo.db");
+    if !path.is_file() {
+        return None;
+    }
+    let conn = Connection::open(path).ok()?;
+    conn.query_row("SELECT value FROM app_state WHERE key = ?1", [key], |row| row.get(0))
+        .ok()
+}
+
 pub fn set_pref(key: String, value: String, db: &Mutex<Connection>) -> Result<(), String> {
     let conn = db.lock().map_err(|e| e.to_string())?;
     conn.execute(

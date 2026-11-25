@@ -127,6 +127,8 @@ pub struct Halo {
     pub theme_pref: String,
     /// Settings → Appearance → "Accent from album art".
     pub accent_from_art: bool,
+    /// Settings → Appearance → Renderer (saved; applies at next launch).
+    pub renderer: crate::renderer::Renderer,
     /// Cover cross-fade and accent glide on song change.
     pub fades: crate::fade::Fades,
     pub system_mode: iced::theme::Mode,
@@ -208,6 +210,9 @@ impl Halo {
                 .flatten()
                 .as_deref()
                 != Some("false"),
+            renderer: crate::renderer::Renderer::from_pref(
+                commands::ui::get_pref(crate::renderer::PREF.into(), backend.db()).ok().flatten().as_deref(),
+            ),
             system_mode: iced::theme::Mode::Dark,
             player,
             history: History::default(),

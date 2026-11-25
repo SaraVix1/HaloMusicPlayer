@@ -88,6 +88,8 @@ crates/
         ├── ui.rs               # small builders: tooltip, art, stars, toggle, modal, progress, spinners…
         ├── format.rs           # duration / relative time / plural helpers
         ├── fade.rs             # cover cross-fade + accent glide on song change (tick only while running)
+        ├── renderer.rs         # Settings → Appearance → Renderer (GPU / Software): sets ICED_BACKEND at
+        │                       # the start of main from `ui.renderer` (read_pref_early); next launch
         ├── thumbs.rs           # cover thumbnails on disk (128 / 384 px) + worker; `ui::art` picks by drawn size
         ├── shortcuts.rs        # Space / ←→ / Ctrl+←→ / Ctrl+L and which keys reach on_key (not while typing)
         ├── tray.rs             # tray-icon + menu (GTK thread on Linux), events subscription

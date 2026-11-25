@@ -8,6 +8,7 @@ mod components;
 mod format;
 mod icons;
 mod pages;
+mod renderer;
 mod route;
 mod shortcuts;
 mod single_instance;
@@ -97,6 +98,7 @@ fn main() -> iced::Result {
     #[cfg(target_os = "linux")]
     prefer_x11();
     prefer_one_gpu_backend();
+    renderer::apply_saved();
 
     // A second launch hands its argv (files to open) to the running Halo
     // and exits. Claimed before the backend starts, so launches racing a
