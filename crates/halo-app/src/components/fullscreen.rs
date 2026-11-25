@@ -341,7 +341,8 @@ fn controls(app: &Halo) -> Element<'_, Message> {
             !has_track || duration == 0,
             |ms| Message::NowPlaying(now_playing::Msg::Scrub(ms)),
             |ms| Message::NowPlaying(now_playing::Msg::Commit(ms)),
-        ))
+        )
+        .look(crate::widgets::waveform::Look::Full))
         .width(Length::Fill)
         .height(32),
         time(duration_u(p.player.duration_ms), false),
