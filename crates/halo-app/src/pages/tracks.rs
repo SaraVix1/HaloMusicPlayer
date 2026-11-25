@@ -177,44 +177,49 @@ pub fn cards_static<'a>(list: &'a TrackList, current_track: Option<i64>) -> Elem
     .into()
 }
 
-/// Wide tile: cover, then title / artist / album · duration, ▶ on hover at
-/// the right. Click plays it (the rest of the list queued after it);
-/// right-click: the song menu.
+/// Wide tile: cover (▶ over it on hover), then title / artist, and album
+/// with the length at the right end. Click plays it (the rest of the list
+/// queued after it); right-click: the song menu.
 fn song_card<'a>(tr: &'a Track, index: usize, is_current: bool, ids: Vec<i64>) -> Element<'a, Message> {
     let k = t();
     let title = tr.title.clone().unwrap_or_else(|| file_name(&tr.file_path));
     let artists = if tr.artists.is_empty() { "Unknown artist".to_string() } else { tr.artists.join(", ") };
-    let mut third = tr.album_name.clone().filter(|s| !s.is_empty()).unwrap_or_default();
-    if tr.duration_ms.is_some() {
-        third = if third.is_empty() { duration(tr.duration_ms) } else { format!("{third} · {}", duration(tr.duration_ms)) };
-    }
+    let album = tr.album_name.clone().filter(|s| !s.is_empty()).unwrap_or_default();
     let play = Message::Player(PlayerCmd::PlayTracks(ids, index as i64));
+    let bottom = row![
+        line(album).size(theme::SMALL).color(a(k.muted_fg, 0.8)).width(Length::Fill),
+        text(duration(tr.duration_ms)).size(theme::SMALL).color(k.muted_fg),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
     let text_col = column![
         line(title).size(theme::BODY).font(theme::MEDIUM).color(if is_current { k.primary } else { k.foreground }).width(Length::Fill),
         line(artists).size(theme::SMALL).color(k.muted_fg).width(Length::Fill),
-        line(third).size(theme::SMALL).color(a(k.muted_fg, 0.8)).width(Length::Fill),
+        bottom,
     ]
     .spacing(1)
     .width(Length::Fill);
-    let base = row![art(tr.album_art_path.as_deref(), CARD_ART, theme::R_MD), text_col]
-        .spacing(12)
-        .align_y(Alignment::Center)
-        .height(Length::Fill);
+    // ▶ over the cover on hover (the right end shows the length).
     let play_btn = button(
-        iced::widget::center(container(icon(Icon::Play, 14.0)).padding(Padding::ZERO.left(2.0))).width(34).height(34),
+        iced::widget::center(container(icon(Icon::Play, 12.0)).padding(Padding::ZERO.left(2.0))).width(28).height(28),
     )
     .padding(0)
     .style(|th, st| {
         let mut s = theme::btn_primary(th, st);
         s.border.radius = theme::radius(theme::R_FULL);
+        s.shadow = theme::shadow_lg();
         s
     })
     .on_press(play.clone());
-    let overlay = container(play_btn).width(Length::Fill).height(Length::Fill).align_x(Alignment::End).align_y(Alignment::Center);
-    surface(hover(base, overlay))
+    let cover = hover(
+        art(tr.album_art_path.as_deref(), CARD_ART, theme::R_MD),
+        iced::widget::center(play_btn).width(CARD_ART).height(CARD_ART),
+    );
+    let content = row![cover, text_col].spacing(12).align_y(Alignment::Center).height(Length::Fill);
+    surface(content)
         .width(Length::Fill)
         .height(CARD_H)
-        .padding(Padding::from([8.0, 10.0]))
+        .padding(Padding::from([8.0, 12.0]))
         .on_press(play)
         .on_right_press(crate::components::context_menu::opener(crate::components::context_menu::Target::Track {
             id: tr.id,
