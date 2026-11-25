@@ -10,11 +10,13 @@ What it does (Linux, X11 / XWayland session, Halo itself must not be running):
      edits the copy only: volume 0 (silent), Last.fm signed out (no
      scrobbles), resume on launch (paused), repeat all, and a queue of 60
      random library songs. Your real data is never touched.
-  2. Starts BINARY with XDG_DATA_HOME pointing at the copy, HALO_PROFILE=1
+  2. Starts BINARY with XDG_DATA_HOME pointing at the copy (XDG_CACHE_HOME
+     at <sandbox>/cache, for thumbnails), HALO_PROFILE=1
      and ICED_BACKEND=<backend>, and reads the [profile] startup marks.
   3. Samples memory (VmRSS / VmHWM) and CPU (% of one core):
      idle on Home (20 s), playing (20 s, via MPRIS Play), then RSS before /
-     after --skips track changes (MPRIS Next) as a leak check.
+     after --skips track changes (MPRIS Next) as a leak check, and CPU
+     during them (back-to-back cover fades).
   4. Stops Halo and prints / saves the numbers.
 """
 
@@ -114,7 +116,10 @@ def main() -> int:
     sandbox = Path(a.sandbox)
     data = prepare(sandbox)
     log_path = sandbox / f"{a.label}-{a.backend}.log"
-    env = dict(os.environ, XDG_DATA_HOME=str(data), HALO_PROFILE="1", ICED_BACKEND=a.backend)
+    # Thumbnails go to the sandbox too (kept between runs: the second run
+    # measures a warm cache); album art paths in the DB stay absolute.
+    env = dict(os.environ, XDG_DATA_HOME=str(data), XDG_CACHE_HOME=str(sandbox / "cache"),
+               HALO_PROFILE="1", ICED_BACKEND=a.backend)
     t_spawn = time.monotonic()
     with open(log_path, "w") as log:
         proc = subprocess.Popen([a.binary], env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -142,13 +147,16 @@ def main() -> int:
         time.sleep(3)
         res["playing"] = {**status(pid), "cpu": round(cpu_percent(pid, 20), 2)}
         before = status(pid)["VmRSS"]
+        c0, t0 = cpu_ticks(pid), time.monotonic()
         for _ in range(a.skips):
             mpris("Next")
             time.sleep(0.4)
+        # Constant cover / accent fades: the busiest the UI gets.
+        skip_cpu = 100.0 * (cpu_ticks(pid) - c0) / HZ / (time.monotonic() - t0)
         time.sleep(3)
         after = status(pid)
         res["leak"] = {"skips": a.skips, "rss_before": round(before, 1), "rss_after": round(after["VmRSS"], 1),
-                       "hwm": round(after["VmHWM"], 1)}
+                       "hwm": round(after["VmHWM"], 1), "cpu": round(skip_cpu, 1)}
     finally:
         proc.send_signal(signal.SIGTERM)
         try:

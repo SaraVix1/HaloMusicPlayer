@@ -33,7 +33,7 @@ pub const TILES: GridSpec = GridSpec {
 /// Round artist avatar: album art, or initials on muted.
 pub fn avatar<'a>(name: &str, art_path: Option<&str>) -> Element<'a, Message> {
     let k = t();
-    match art_path.filter(|p| !p.is_empty() && std::path::Path::new(p).is_file()) {
+    match art_path.filter(|p| crate::ui::art_exists(p)).and_then(|p| crate::thumbs::pick(p, 160.0)) {
         Some(p) => iced::widget::image(iced::widget::image::Handle::from_path(p))
             .width(Length::Fill)
             .height(Length::Fill)

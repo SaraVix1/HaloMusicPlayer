@@ -12,6 +12,7 @@ mod route;
 mod shortcuts;
 mod single_instance;
 mod theme;
+mod thumbs;
 mod tray;
 mod ui;
 mod widgets;
@@ -51,6 +52,18 @@ fn prefer_x11() {
     std::env::remove_var("WAYLAND_SOCKET");
 }
 
+/// Linux: let wgpu use Vulkan only. iced asks for every backend, so
+/// OpenGL / EGL was initialised as well, for nothing: Vulkan only starts
+/// ~220 ms faster and uses ~55 MB less (GTX 1660, Debian 13). Without
+/// Vulkan, iced falls back to its software renderer. An explicit
+/// `WGPU_BACKEND` wins. Must run before any thread starts.
+#[cfg(target_os = "linux")]
+fn prefer_vulkan() {
+    if std::env::var_os("WGPU_BACKEND").is_none() {
+        std::env::set_var("WGPU_BACKEND", "vulkan");
+    }
+}
+
 /// Open a URL in the default browser. On Linux the browser gets the
 /// session's `WAYLAND_DISPLAY` back (see [`prefer_x11`]).
 pub fn open_url(url: &str) -> std::io::Result<()> {
@@ -73,7 +86,10 @@ fn main() -> iced::Result {
     halo_backend::mem::limit_arenas(); // before any thread starts
     halo_backend::profile::start();
     #[cfg(target_os = "linux")]
-    prefer_x11();
+    {
+        prefer_x11();
+        prefer_vulkan();
+    }
     halo_backend::profile::mark("single-instance check");
     halo_backend::platform::set_app_user_model_id();
 
@@ -91,6 +107,7 @@ fn main() -> iced::Result {
         }
     };
     single_instance::listen(backend.clone());
+    thumbs::init(&backend.path().cache_dir);
 
     // Launched with audio files (double-click / "Open with Halo"): play
     // those instead of resuming the previous session.
