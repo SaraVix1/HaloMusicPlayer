@@ -283,6 +283,16 @@ Saves multiply by the same scale and clamp again; a window dropped outside the w
 
 ---
 
+## Windows: "VCRUNTIME140.dll was not found"
+
+**Symptom.** On a Windows PC without the Visual C++ Redistributable, `halo.exe` doesn't start: *The code execution cannot proceed because VCRUNTIME140.dll was not found* (v0.1.4 shipped like this).
+
+**Cause.** Rust's MSVC target links the C runtime dynamically by default. Tauri's build script linked it statically; the iced port lost that.
+
+**Fix.** `rustflags = ["-C", "target-feature=+crt-static"]` under `[target.x86_64-pc-windows-msvc]` in [.cargo/config.toml](../.cargo/config.toml); the `cc` crate (bundled SQLite) follows it. A `RUSTFLAGS` environment variable would replace these flags, so CI must not set one.
+
+---
+
 ## Memory: glibc keeps freed heap from short-lived threads
 
 **Symptom.** RSS climbs by 100–300 MB while skipping through songs and never comes back down, although nothing leaks (heap profilers show the memory freed).
