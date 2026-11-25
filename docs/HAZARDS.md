@@ -147,6 +147,19 @@ Each entry: **symptom → cause → fix**.
 
 ---
 
+## Single instance: claim the socket name before `Backend::start`; the name is per user
+
+**Symptom.** Opening several files with Halo closed starts several Halos, all playing. Or, with two users logged in, the second user's launch does nothing (it went to the first user's Halo). Or (Windows) a file opened while Halo runs plays but the window only flashes in the taskbar.
+
+**Cause.**
+- Explorer starts one process per selected file, all at once. If each first tries to connect, then starts the backend (DB, audio device: hundreds of ms), and only then listens, every one of them finds nobody listening and becomes a full Halo.
+- Linux abstract sockets and Windows `\\.\pipe\` names are machine-wide, not per user.
+- Windows lets only the process the user just launched take the foreground; the running Halo is a background process, so `gain_focus` only flashes.
+
+**Fix.** [crates/halo-app/src/single_instance.rs](../crates/halo-app/src/single_instance.rs): `claim()` runs first in `main` (after `prefer_x11`, which must precede any thread). Creating the listener *is* the lock — Windows sets `FILE_FLAG_FIRST_PIPE_INSTANCE` (interprocess does this), Linux abstract names are exclusive, and `try_overwrite` stays off. A launch that gets `AddrInUse` retries connect/create for up to 5 s instead of starting. The primary accepts immediately and holds messages in an `Inbox` until `Primary::attach(backend)`. The name is `com.saravix.halo.<uid>.sock` (Unix) / `….<USERNAME>.sock` (Windows). The forwarding process calls `AllowSetForegroundWindow(ASFW_ANY)` before sending, so the running Halo may raise itself. On Linux/X11, KWin's focus-stealing prevention may still refuse `_NET_ACTIVE_WINDOW` from the running Halo (it marks the window "demands attention" instead); winit gives no way to pass the launcher's `DESKTOP_STARTUP_ID` along.
+
+---
+
 ## Never call `emit_state` (or anything that locks the DB) while holding the DB lock
 
 **Symptom.** The whole app freezes — UI stops updating, media keys and buttons do nothing — after a specific action. Reproduced case: shuffle on, Next past the end of the queue, then Previous.

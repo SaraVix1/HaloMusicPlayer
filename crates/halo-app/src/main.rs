@@ -69,13 +69,17 @@ pub fn open_url(url: &str) -> std::io::Result<()> {
 fn main() -> iced::Result {
     #[cfg(target_os = "linux")]
     prefer_x11();
-    halo_backend::platform::set_app_user_model_id();
 
     // A second launch hands its argv (files to open) to the running Halo
-    // and exits.
-    if single_instance::forward_to_running() {
-        return Ok(());
-    }
+    // and exits. Claimed before the backend starts, so launches racing a
+    // starting Halo wait for it instead of starting copies; before the
+    // AUMID setup, so a forwarding launch exits as fast as it can.
+    let primary = match single_instance::claim() {
+        single_instance::Claim::Forwarded => return Ok(()),
+        single_instance::Claim::Primary(p) => Some(p),
+        single_instance::Claim::Unguarded => None,
+    };
+    halo_backend::platform::set_app_user_model_id();
 
     let backend = match Backend::start() {
         Ok(b) => b,
@@ -84,7 +88,9 @@ fn main() -> iced::Result {
             std::process::exit(1);
         }
     };
-    single_instance::listen(backend.clone());
+    if let Some(primary) = primary {
+        primary.attach(backend.clone());
+    }
 
     // Launched with audio files (double-click / "Open with Halo"): play
     // those instead of resuming the previous session.

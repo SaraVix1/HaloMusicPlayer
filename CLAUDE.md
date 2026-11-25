@@ -73,7 +73,7 @@ crates/
     ├── linux/halo.desktop.hbs  # deb desktop template (MimeType, StartupWMClass)
     ├── linux/rpm/halo.desktop  # the same, rendered, for the .rpm — keep in sync
     └── src/
-        ├── main.rs             # Linux: prefer X11/XWayland → AUMID → single-instance forward →
+        ├── main.rs             # Linux: prefer X11/XWayland → single-instance claim/forward → AUMID →
         │                       # Backend::start → iced::daemon; open_url (browser keeps Wayland)
         ├── app.rs              # Halo state, Message, update, view per window, subscriptions, window
         │                       # management (hide/show main, open mini, close-to-tray), bg()/fire() helpers
@@ -83,7 +83,8 @@ crates/
         ├── ui.rs               # small builders: tooltip, art, stars, toggle, modal, progress, spinners…
         ├── format.rs           # duration / relative time / plural helpers
         ├── tray.rs             # tray-icon + menu (GTK thread on Linux), events subscription
-        ├── single_instance.rs  # local socket: forward argv/cwd to the running instance
+        ├── single_instance.rs  # per-user local socket, claimed before Backend::start: forward
+        │                       # argv/cwd to the running instance (HAZARDS)
         ├── widgets/            # custom widgets: textline (ellipsis/marquee), surface (hover/click
         │                       # container), popover (anchored overlay), waveform (seek bar)
         ├── components/         # shell pieces: title_bar, sidebar, now_playing (+ sleep timer),

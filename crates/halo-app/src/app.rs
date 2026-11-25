@@ -384,13 +384,12 @@ impl Halo {
                 Task::none()
             }
             BackendEvent::RaiseMain => self.show_main(),
-            BackendEvent::RevealMain => {
-                if self.mini_id.is_some() {
-                    Task::none()
-                } else {
-                    self.show_main()
-                }
-            }
+            // Files opened from the OS: bring Halo forward, keeping the mini
+            // player if that's what's showing (one window at a time).
+            BackendEvent::RevealMain => match self.mini_id {
+                Some(id) => window::gain_focus(id),
+                None => self.show_main(),
+            },
             BackendEvent::LibraryChanged => {
                 crate::ui::invalidate_art_cache();
                 pages::on_library_changed(self)

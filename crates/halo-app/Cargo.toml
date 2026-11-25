@@ -32,8 +32,14 @@ gtk = "0.18"
 dbus = "0.9"
 x11-dl = "2.21"
 
+[target.'cfg(unix)'.dependencies]
+# single_instance: getuid() for the per-user socket name
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6"
+# single_instance: AllowSetForegroundWindow (same version as halo-backend)
+windows = { version = "0.58", features = ["Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
