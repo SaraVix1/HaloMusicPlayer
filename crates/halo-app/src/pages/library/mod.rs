@@ -79,7 +79,18 @@ pub struct LibraryState {
     pub sorts: HashMap<LibraryTab, Sort>,
     /// Open dropdown in the tab bar (or a song list's Sort button).
     pub menu: Option<Menu>,
+    /// Songs tab: list rows or cards (`library.songs_view` pref).
+    pub songs_view: SongsView,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SongsView {
+    #[default]
+    List,
+    Cards,
+}
+
+const SONGS_VIEW_PREF: &str = "library.songs_view";
 
 impl LibraryState {
     /// Saved sorts; the Songs tab starts in its saved order.
@@ -89,7 +100,11 @@ impl LibraryState {
         if let Some(s) = sorts.get(&LibraryTab::Songs) {
             songs_query = sort::apply_to_query(&songs_query, *s);
         }
-        LibraryState { sorts, songs_query, ..Default::default() }
+        let songs_view = match halo_backend::commands::ui::get_pref(SONGS_VIEW_PREF.into(), backend.db()).ok().flatten().as_deref() {
+            Some("cards") => SongsView::Cards,
+            _ => SongsView::List,
+        };
+        LibraryState { sorts, songs_query, songs_view, ..Default::default() }
     }
 
     pub fn sort_of(&self, tab: LibraryTab) -> Sort {
@@ -128,6 +143,7 @@ pub enum LMsg {
     CloseMenu,
     OpenTab(LibraryTab),
     SetSort(SortBy),
+    SongsView(SongsView),
 }
 
 pub fn update(app: &mut Halo, msg: LMsg) -> Task<Message> {
@@ -149,6 +165,13 @@ pub fn update(app: &mut Halo, msg: LMsg) -> Task<Message> {
         LMsg::SetSort(by) => {
             st.menu = None;
             set_sort(app, by)
+        }
+        LMsg::SongsView(v) => {
+            st.songs_view = v;
+            let value = if v == SongsView::Cards { "cards" } else { "list" };
+            crate::app::fire(&app.backend, move |b| {
+                halo_backend::commands::ui::set_pref(SONGS_VIEW_PREF.into(), value.into(), b.db())
+            })
         }
     }
 }
@@ -433,7 +456,10 @@ pub fn tabbed<'a>(app: &'a Halo, tab: LibraryTab, body: Element<'a, Message>) ->
         _ if !sort::options(tab).is_empty() => Some((sort::options(tab).to_vec(), app.pages.library.sort_of(tab))),
         _ => None,
     };
-    let mut bar = row![tabs, ui::fill()].align_y(Alignment::Center);
+    let mut bar = row![tabs, ui::fill()].spacing(8).align_y(Alignment::Center);
+    if tab == LibraryTab::Songs {
+        bar = bar.push(view_toggle(app.pages.library.songs_view));
+    }
     if let Some((options, cur)) = opts {
         bar = bar.push(sort_button(app, options, cur));
     }
@@ -449,6 +475,24 @@ pub fn tabbed<'a>(app: &'a Halo, tab: LibraryTab, body: Element<'a, Message>) ->
     ]
     .padding(Padding::from([24.0, 24.0]).bottom(0.0));
     column![header, body].height(Length::Fill).into()
+}
+
+/// ☰ List | ▦ Cards for the Songs tab.
+fn view_toggle<'a>(cur: SongsView) -> Element<'a, Message> {
+    let seg = |v: SongsView, ic: Icon, label: &'static str| {
+        ui::tip(
+            button(crate::ui::icon_box(ic, 15.0, 30.0, 28.0))
+                .padding(0)
+                .style(theme::btn_segment(cur == v))
+                .on_press(Message::Page(Msg::Library(LMsg::SongsView(v)))),
+            label,
+            iced::widget::tooltip::Position::Bottom,
+        )
+    };
+    container(row![seg(SongsView::List, Icon::List, "List"), seg(SongsView::Cards, Icon::LayoutGrid, "Cards")].spacing(2))
+        .padding(2)
+        .style(theme::bordered(theme::R_MD))
+        .into()
 }
 
 /// A tab: label with a 2px underline when active.

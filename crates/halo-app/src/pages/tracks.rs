@@ -9,7 +9,7 @@ use halo_backend::commands::library::{Track, TracksQuery};
 use iced::widget::{button, column, container, hover, row, text, tooltip::Position, Row};
 use iced::{Alignment, Element, Length, Padding};
 
-use super::common::{self, note, ScrollMemory};
+use super::common::{self, note, GridSpec, ScrollMemory};
 use crate::app::Halo;
 use super::Msg;
 use crate::app::{Message, PlayerCmd};
@@ -107,6 +107,92 @@ fn links<'a>(values: &[String], size: f32, make: impl Fn(&str) -> TracksQuery) -
         r = r.push(link(v.clone(), Route::Songs(make(v)), size));
     }
     container(r).clip(true).width(Length::Fill).into()
+}
+
+/// Song cards grid (Songs tab, ▦ Cards): ~150 px cards, as many columns
+/// as fit.
+const CARDS: GridSpec = GridSpec {
+    min_item_width: 150.0,
+    row_height: 236.0,
+    gap: 16.0,
+    px: 0.0,
+    padding_top: 0.0,
+    padding_bottom: 24.0,
+};
+
+/// Virtualised grid of song cards.
+pub fn cards<'a>(
+    list: &'a TrackList,
+    current_track: Option<i64>,
+    scroll_key: String,
+    memory: &'a ScrollMemory,
+) -> Element<'a, Message> {
+    let ids: Vec<i64> = list.ids();
+    common::vgrid(scroll_key, memory, list.tracks.len(), CARDS, move |i, w| {
+        let tr = &list.tracks[i];
+        song_card(tr, i, w.min(196.0), current_track == Some(tr.id), ids.clone())
+    })
+}
+
+/// Cover with ▶ on hover, title, artist. Click plays it (the rest of the
+/// list queued after it); right-click: the song menu.
+fn song_card<'a>(tr: &'a Track, index: usize, side: f32, is_current: bool, ids: Vec<i64>) -> Element<'a, Message> {
+    let k = t();
+    let title = tr.title.clone().unwrap_or_else(|| file_name(&tr.file_path));
+    let artists = if tr.artists.is_empty() { "Unknown artist".to_string() } else { tr.artists.join(", ") };
+    let play = Message::Player(PlayerCmd::PlayTracks(ids, index as i64));
+    let inner = (side - 2.0 * theme::CARD_PAD).max(0.0);
+    let cover = ui::art_sized(tr.album_art_path.as_deref(), Length::Fill, Length::Fill, inner, theme::R_LG);
+    let play_btn = button(
+        iced::widget::center(container(icon(Icon::Play, 16.0)).padding(Padding::ZERO.left(2.0))).width(40).height(40),
+    )
+    .padding(0)
+    .style(|th, st| {
+        let mut s = theme::btn_primary(th, st);
+        s.border.radius = theme::radius(theme::R_FULL);
+        s.shadow = theme::shadow_lg();
+        s
+    })
+    .on_press(play.clone());
+    let art_box = hover(
+        container(cover).width(Length::Fill).height(Length::Fill),
+        container(play_btn).width(Length::Fill).height(Length::Fill).align_x(Alignment::End).align_y(Alignment::End).padding(8),
+    );
+    let content = column![
+        container(art_box).width(Length::Fill).height(inner),
+        column![
+            line(title).size(theme::BODY).font(theme::MEDIUM).color(if is_current { k.primary } else { k.foreground }).width(Length::Fill),
+            line(artists).size(theme::SMALL).color(k.muted_fg).width(Length::Fill),
+        ],
+    ]
+    .spacing(8);
+    surface(content)
+        .width(Length::Fill)
+        .padding(theme::CARD_PAD)
+        .on_press(play)
+        .on_right_press(crate::components::context_menu::opener(crate::components::context_menu::Target::Track {
+            id: tr.id,
+            album: tr.album_name.clone(),
+            artists: tr.artists.clone(),
+            playlist: None,
+        }))
+        .interaction(iced::mouse::Interaction::Pointer)
+        .style(|s| theme::card(s.hovered))
+        .into()
+}
+
+/// Plain (non-virtual) rows: a folder's own few songs under its subfolder
+/// cards, inside the page's scroll.
+pub fn rows<'a>(list: &'a TrackList, variant: Variant, current_track: Option<i64>) -> Element<'a, Message> {
+    let ids = list.ids();
+    let mut col = column![];
+    for (i, tr) in list.tracks.iter().enumerate() {
+        col = col.push(
+            container(track_row(tr, i, variant, current_track == Some(tr.id), list.star_hover, ids.clone()))
+                .height(ROW_H),
+        );
+    }
+    col.into()
 }
 
 /// Virtualised track rows.
@@ -332,7 +418,15 @@ pub fn page<'a>(
     } else if n == 0 {
         empty
     } else {
-        table(list, variant, current, key, &app.pages.scroll)
+        // The Songs tab (no h1 of its own) can show cards instead of rows.
+        let as_cards = title.is_none()
+            && variant == Variant::Songs
+            && app.pages.library.songs_view == super::library::SongsView::Cards;
+        if as_cards {
+            cards(list, current, key, &app.pages.scroll)
+        } else {
+            table(list, variant, current, key, &app.pages.scroll)
+        }
     };
     col = col.push(body);
     common::padded(col)

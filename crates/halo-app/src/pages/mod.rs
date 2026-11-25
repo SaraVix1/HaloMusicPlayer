@@ -80,8 +80,9 @@ pub enum Msg {
     PlayAlbum(String),
 
     FoldersLoaded(Result<Vec<FolderTrack>, String>),
-    SelectFolder(String),
-    FolderPlay(Vec<i64>, i64, bool),
+    FolderTracks(String, Result<Vec<Track>, String>),
+    /// Play / shuffle a folder and everything under it.
+    PlayDir(String, bool),
 
 
     Playlists(playlists::PMsg),
@@ -102,6 +103,7 @@ pub fn update(app: &mut Halo, msg: Msg) -> Task<Message> {
             app.pages.songs.star_hover = h;
             app.pages.recent.star_hover = h;
             app.pages.most.star_hover = h;
+            app.pages.folders.dir_tracks.star_hover = h;
             Task::none()
         }
 
@@ -156,18 +158,12 @@ pub fn update(app: &mut Halo, msg: Msg) -> Task<Message> {
         }
         Msg::PlayAlbum(name) => albums::play_album(app, name),
 
-        Msg::FoldersLoaded(r) => {
-            folders::on_loaded(app, r);
+        Msg::FoldersLoaded(r) => folders::on_loaded(app, r),
+        Msg::FolderTracks(path, r) => {
+            folders::on_dir_tracks(app, path, r);
             Task::none()
         }
-        Msg::SelectFolder(p) => {
-            app.pages.folders.selected = Some(p.clone());
-            app.pages.scroll.restore(&format!("folders:{p}"))
-        }
-        Msg::FolderPlay(ids, start, shuffle) => fire(&app.backend, move |b| {
-            halo_backend::commands::player::set_shuffle(b.clone(), shuffle)?;
-            halo_backend::commands::player::set_queue_and_play(b, ids, start)
-        }),
+        Msg::PlayDir(path, shuffle) => folders::play(app, path, shuffle),
 
 
         Msg::Playlists(m) => playlists::update(app, m),
@@ -226,7 +222,7 @@ pub fn on_enter(app: &mut Halo) -> Task<Message> {
     app.pages.library.menu = None;
     normalize_route(app);
     let route = app.route().clone();
-    let restore = app.pages.scroll.restore(&scroll_key_for(app, &route));
+    let restore = app.pages.scroll.restore(&scroll_key_for(&route));
     let load = match &route {
         Route::Home => home::load(app),
         Route::Songs(q) => songs::load(app, q.clone()),
@@ -243,7 +239,7 @@ pub fn on_enter(app: &mut Halo) -> Task<Message> {
         Route::Composers => library::load(app, library::Kind::Composers),
         Route::Genres => library::load(app, library::Kind::Genres),
         Route::Years => library::load(app, library::Kind::Years),
-        Route::Folders => load_folders(app),
+        Route::Folders | Route::Folder(_) => folders::load(app),
         Route::Playlists => playlists::load(app),
         Route::Playlist(id) => playlist_detail::load(app, *id),
         Route::SmartPlaylist(id) => smart_playlist::load(app, *id),
@@ -252,27 +248,11 @@ pub fn on_enter(app: &mut Halo) -> Task<Message> {
     Task::batch([load, restore])
 }
 
-fn scroll_key_for(app: &Halo, route: &Route) -> String {
+fn scroll_key_for(route: &Route) -> String {
     match route {
         Route::Library(Some(tab)) => format!("library:{tab:?}"),
-        Route::Folders => app
-            .pages
-            .folders
-            .selected
-            .as_ref()
-            .map(|p| format!("folders:{p}"))
-            .unwrap_or_else(|| route.scroll_key()),
         _ => route.scroll_key(),
     }
-}
-
-fn load_folders(app: &mut Halo) -> Task<Message> {
-    app.pages.folders.rows.loading = !app.pages.folders.rows.loaded;
-    crate::app::bg(
-        &app.backend,
-        |b| halo_backend::commands::library::get_folder_tracks(b.db()),
-        |r| Message::Page(Msg::FoldersLoaded(r)),
-    )
 }
 
 pub fn on_navigate(app: &mut Halo, _prev: Route) -> Task<Message> {
@@ -332,6 +312,7 @@ pub fn on_rating_changed(app: &mut Halo, track_id: i64, rating: i64) -> Task<Mes
     app.pages.songs.set_rating(track_id, rating);
     app.pages.recent.set_rating(track_id, rating);
     app.pages.most.set_rating(track_id, rating);
+    app.pages.folders.dir_tracks.set_rating(track_id, rating);
     Task::none()
 }
 
@@ -409,7 +390,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         Route::Composers => library::composers::view(app),
         Route::Genres => library::genres::view(app),
         Route::Years => library::years::view(app),
-        Route::Folders => library::tabbed(app, LibraryTab::Folders, folders::view(app)),
+        Route::Folders | Route::Folder(_) => library::tabbed(app, LibraryTab::Folders, folders::view(app)),
         Route::Playlists => playlists::view(app),
         Route::Playlist(_) => playlist_detail::view(app),
         Route::SmartPlaylist(_) => smart_playlist::view(app),

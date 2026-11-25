@@ -61,6 +61,83 @@ fn order_by_clause(sort: Option<&str>, direction: Option<&str>) -> String {
     format!("{} {}", column, dir)
 }
 
+/// The `Track` columns (alias `t`), for `track_row`.
+const TRACK_COLUMNS: &str = "t.id, t.title, t.album_name, t.duration_ms, t.track_number, t.disc_number,
+        t.year, t.album_art_path, t.file_path, t.folder_id,
+        COALESCE(t.added_at, t.scanned_at, ''),
+        t.rating, t.play_count, t.skip_count, t.last_played_at,
+        (SELECT GROUP_CONCAT(name, '||') FROM (
+         SELECT a.name FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
+         WHERE ta.track_id = t.id ORDER BY a.name COLLATE NOCASE)) AS artists_csv,
+        (SELECT GROUP_CONCAT(name, '||') FROM (
+         SELECT g.name FROM track_genres tg JOIN genres g ON g.id = tg.genre_id
+         WHERE tg.track_id = t.id ORDER BY g.name COLLATE NOCASE)) AS genres_csv";
+
+fn track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Track> {
+    let artists_csv: Option<String> = row.get(15)?;
+    let genres_csv: Option<String> = row.get(16)?;
+    let split = |s: Option<String>| s.map(|s| s.split("||").map(String::from).collect()).unwrap_or_default();
+    Ok(Track {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        album_name: row.get(2)?,
+        duration_ms: row.get(3)?,
+        track_number: row.get(4)?,
+        disc_number: row.get(5)?,
+        year: row.get(6)?,
+        album_art_path: row.get(7)?,
+        file_path: row.get(8)?,
+        folder_id: row.get(9)?,
+        added_at: row.get(10)?,
+        rating: row.get(11)?,
+        play_count: row.get(12)?,
+        skip_count: row.get(13)?,
+        last_played_at: row.get(14)?,
+        artists: split(artists_csv),
+        genres: split(genres_csv),
+    })
+}
+
+/// `/`-separated, no trailing separator (paths compare the same on Windows).
+pub fn norm_path(p: &str) -> String {
+    p.replace('\\', "/").trim_end_matches('/').to_string()
+}
+
+/// Songs in folder `dir`: directly in it, or (`recursive`) in any subfolder
+/// too. File-path order.
+pub fn get_dir_tracks(dir: String, recursive: bool, db: &Mutex<Connection>) -> Result<Vec<Track>, String> {
+    let prefix = format!("{}/", norm_path(&dir));
+    // `!` escapes LIKE wildcards in the folder name.
+    let like = format!("{}%", prefix.replace('!', "!!").replace('%', "!%").replace('_', "!_"));
+    let conn = db.lock().map_err(|e| e.to_string())?;
+    let sql = format!(
+        "SELECT {TRACK_COLUMNS} FROM tracks t
+         WHERE replace(t.file_path, '\\', '/') LIKE ?1 ESCAPE '!'
+         ORDER BY t.file_path COLLATE NOCASE"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let all = stmt
+        .query_map([like], track_row)
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    // LIKE ignores ASCII case; paths only do on Windows.
+    let starts = |p: &str| {
+        if cfg!(windows) {
+            p.to_lowercase().starts_with(&prefix.to_lowercase())
+        } else {
+            p.starts_with(&prefix)
+        }
+    };
+    Ok(all
+        .into_iter()
+        .filter(|t| {
+            let p = norm_path(&t.file_path);
+            starts(&p) && (recursive || !p[prefix.len()..].contains('/'))
+        })
+        .collect())
+}
+
 pub fn get_tracks(query: TracksQuery, db: &Mutex<Connection>) -> Result<Vec<Track>, String> {
     let conn = db.lock().map_err(|e| e.to_string())?;
 
@@ -112,53 +189,13 @@ pub fn get_tracks(query: TracksQuery, db: &Mutex<Connection>) -> Result<Vec<Trac
 
     let order = order_by_clause(query.sort.as_deref(), query.direction.as_deref());
 
-    let sql = format!(
-        "SELECT t.id, t.title, t.album_name, t.duration_ms, t.track_number, t.disc_number,
-                t.year, t.album_art_path, t.file_path, t.folder_id,
-                COALESCE(t.added_at, t.scanned_at, ''),
-                t.rating, t.play_count, t.skip_count, t.last_played_at,
-                (SELECT GROUP_CONCAT(name, '||') FROM (
-                 SELECT a.name FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
-                 WHERE ta.track_id = t.id ORDER BY a.name COLLATE NOCASE)) AS artists_csv,
-                (SELECT GROUP_CONCAT(name, '||') FROM (
-                 SELECT g.name FROM track_genres tg JOIN genres g ON g.id = tg.genre_id
-                 WHERE tg.track_id = t.id ORDER BY g.name COLLATE NOCASE)) AS genres_csv
-         FROM tracks t{}
-         ORDER BY {}",
-        where_clause, order
-    );
+    let sql = format!("SELECT {TRACK_COLUMNS} FROM tracks t{where_clause} ORDER BY {order}");
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let params_iter = rusqlite::params_from_iter(args.iter().map(|b| b.as_ref()));
 
     let rows = stmt
-        .query_map(params_iter, |row| {
-            let artists_csv: Option<String> = row.get(15)?;
-            let genres_csv: Option<String> = row.get(16)?;
-            Ok(Track {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                album_name: row.get(2)?,
-                duration_ms: row.get(3)?,
-                track_number: row.get(4)?,
-                disc_number: row.get(5)?,
-                year: row.get(6)?,
-                album_art_path: row.get(7)?,
-                file_path: row.get(8)?,
-                folder_id: row.get(9)?,
-                added_at: row.get(10)?,
-                rating: row.get(11)?,
-                play_count: row.get(12)?,
-                skip_count: row.get(13)?,
-                last_played_at: row.get(14)?,
-                artists: artists_csv
-                    .map(|s| s.split("||").map(String::from).collect())
-                    .unwrap_or_default(),
-                genres: genres_csv
-                    .map(|s| s.split("||").map(String::from).collect())
-                    .unwrap_or_default(),
-            })
-        })
+        .query_map(params_iter, track_row)
         .map_err(|e| e.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
@@ -762,3 +799,48 @@ mod home_tests {
         assert_eq!(names(&s.recently_added), ["New", "Old"]);
     }
 }
+
+#[cfg(test)]
+mod dir_tests {
+    use super::*;
+    use rusqlite::params;
+
+    fn test_db() -> Mutex<Connection> {
+        let dir = std::env::temp_dir().join(format!("halo-test-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = Mutex::new(crate::db::open(dir).unwrap());
+        {
+            let conn = db.lock().unwrap();
+            for p in [
+                "/m/Ilaiyaraaja/01 a.mp3",
+                "/m/Ilaiyaraaja/1980s/02 b.mp3",
+                "/m/Ilaiyaraaja/1980s/Disc 2/03 c.mp3",
+                "/m/Ilaiyaraaja Live/04 d.mp3",
+                "/m/50%_off/05 e.mp3",
+                "/m/50x off/06 f.mp3",
+            ] {
+                conn.execute("INSERT INTO tracks (file_path, title) VALUES (?1, ?1)", params![p]).unwrap();
+            }
+        }
+        db
+    }
+
+    fn paths(v: &[Track]) -> Vec<&str> {
+        v.iter().map(|t| t.file_path.as_str()).collect()
+    }
+
+    #[test]
+    fn direct_and_recursive_songs_of_a_folder() {
+        let db = test_db();
+        // Only its own songs, not "Ilaiyaraaja Live" next to it.
+        assert_eq!(paths(&get_dir_tracks("/m/Ilaiyaraaja".into(), false, &db).unwrap()), ["/m/Ilaiyaraaja/01 a.mp3"]);
+        assert_eq!(
+            paths(&get_dir_tracks("/m/Ilaiyaraaja/".into(), true, &db).unwrap()),
+            ["/m/Ilaiyaraaja/01 a.mp3", "/m/Ilaiyaraaja/1980s/02 b.mp3", "/m/Ilaiyaraaja/1980s/Disc 2/03 c.mp3"]
+        );
+        // LIKE wildcards in a folder name are literal.
+        assert_eq!(paths(&get_dir_tracks("/m/50%_off".into(), true, &db).unwrap()), ["/m/50%_off/05 e.mp3"]);
+    }
+}
+
