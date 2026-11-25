@@ -2045,7 +2045,7 @@ dependencies = [
 
 [[package]]
 name = "halo"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "dbus",
  "gtk",
@@ -2070,7 +2070,7 @@ dependencies = [
 
 [[package]]
 name = "halo-backend"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cpal",
  "dirs",
