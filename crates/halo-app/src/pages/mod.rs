@@ -72,7 +72,7 @@ pub enum Msg {
     SongsLoaded(TracksQuery, Result<Vec<Track>, String>),
     RecentLoaded(Result<Vec<Track>, String>),
     MostLoaded(Result<Vec<Track>, String>),
-    Sort(tracks::SortKey),
+    Library(library::LMsg),
     PlayAll(Vec<i64>),
     AddToPlaylist(Vec<i64>),
     EditMetadata(i64),
@@ -138,10 +138,7 @@ pub fn update(app: &mut Halo, msg: Msg) -> Task<Message> {
             set_list(&mut app.pages.most, r);
             Task::none()
         }
-        Msg::Sort(key) => match app.route().clone() {
-            Route::Songs(q) => app.update(Message::ReplaceRoute(Route::Songs(songs::sorted(&q, key)))),
-            _ => Task::none(),
-        },
+        Msg::Library(m) => library::update(app, m),
         Msg::PlayAll(ids) => {
             if ids.is_empty() {
                 return Task::none();
@@ -234,6 +231,7 @@ fn normalize_route(app: &mut Halo) {
 
 /// Load whatever the current route needs and restore its scroll position.
 pub fn on_enter(app: &mut Halo) -> Task<Message> {
+    app.pages.library.menu = None;
     normalize_route(app);
     let route = app.route().clone();
     let restore = app.pages.scroll.restore(&scroll_key_for(app, &route));
@@ -344,6 +342,9 @@ pub fn on_rating_changed(app: &mut Halo, track_id: i64, rating: i64) -> Task<Mes
 
 pub fn on_escape(app: &mut Halo) -> Task<Message> {
     if dialogs::on_escape(app) {
+        return Task::none();
+    }
+    if app.pages.library.menu.take().is_some() {
         return Task::none();
     }
     let pl = &mut app.pages.playlists;

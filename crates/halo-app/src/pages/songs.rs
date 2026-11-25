@@ -1,11 +1,11 @@
-//! All Songs (`all-songs.tsx`): filter chips from the URL-style query, sortable
-//! columns, Play All / Shuffle Play.
+//! All Songs (`all-songs.tsx`): filter chips from the URL-style query, the
+//! Sort ▾ menu (`library::sort`), Play All / Shuffle Play.
 
 use halo_backend::commands::library::{self, TracksQuery};
 use iced::widget::{button, row, text};
 use iced::{Alignment, Element, Padding, Task};
 
-use super::tracks::{self, SortKey, Variant};
+use super::tracks::{self, Variant};
 use super::Msg;
 use crate::app::{bg, Halo, Message};
 use crate::icons::{icon, Icon};
@@ -27,42 +27,6 @@ pub fn load(app: &mut Halo, q: TracksQuery) -> Task<Message> {
         &app.backend,
         move |b| library::get_tracks(q2, b.db()),
         move |r| Message::Page(Msg::SongsLoaded(q, r)),
-    )
-}
-
-/// Toggle direction when clicking the active column, otherwise sort by the
-/// new column ascending (`setParams(..., { replace: true })`).
-pub fn sorted(q: &TracksQuery, key: SortKey) -> TracksQuery {
-    let mut next = q.clone();
-    let cur = q.sort.as_deref().unwrap_or("title");
-    let dir = q.direction.as_deref().unwrap_or("asc");
-    if cur == key.as_str() {
-        next.direction = Some(if dir == "asc" { "desc" } else { "asc" }.into());
-    } else {
-        next.sort = Some(key.as_str().into());
-        next.direction = Some("asc".into());
-    }
-    next
-}
-
-pub fn sort_state(q: &TracksQuery) -> (SortKey, bool) {
-    let key = match q.sort.as_deref().unwrap_or("title") {
-        "artist" => SortKey::Artist,
-        "album" => SortKey::Album,
-        "genre" => SortKey::Genre,
-        "duration" => SortKey::Duration,
-        "rating" => SortKey::Rating,
-        // track_number / scanned_at / play_count have no header arrow.
-        "title" => SortKey::Title,
-        _ => return (SortKey::Title, q.direction.as_deref() != Some("desc")),
-    };
-    (key, q.direction.as_deref() != Some("desc"))
-}
-
-pub fn has_arrow(q: &TracksQuery) -> bool {
-    matches!(
-        q.sort.as_deref().unwrap_or("title"),
-        "title" | "artist" | "album" | "genre" | "duration" | "rating"
     )
 }
 

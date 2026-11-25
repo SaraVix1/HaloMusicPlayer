@@ -7,19 +7,26 @@ pub mod artists;
 pub mod cards;
 pub mod composers;
 pub mod genres;
+pub mod sort;
 pub mod years;
 
 use halo_backend::commands::library::{
     self, Album, AlbumArtist, Artist, Composer, Genre, YearStat,
 };
+use std::collections::HashMap;
+
 use iced::widget::{button, column, container, row, stack, text, Space};
-use iced::{Element, Length, Padding, Task};
+use iced::{Alignment, Element, Length, Padding, Task};
+
+use sort::{Sort, SortBy};
 
 use super::common::{self, note, GridSpec, ScrollMemory};
 use super::Msg;
 use crate::app::{bg, Halo, Message};
 use crate::route::{LibraryTab, Route};
+use crate::icons::{icon, Icon};
 use crate::theme::{self, t};
+use crate::widgets::{popover, Placement};
 use crate::ui;
 
 /// One loadable collection.
@@ -67,6 +74,174 @@ pub struct LibraryState {
     pub last_tab: LibraryTab,
     /// Last unfiltered Songs query (keeps the Songs tab's sort order).
     pub songs_query: halo_backend::commands::library::TracksQuery,
+    /// Chosen sort per tab (missing: the tab's default). Songs' is also in
+    /// its route's query.
+    pub sorts: HashMap<LibraryTab, Sort>,
+    /// Open dropdown in the tab bar (or a song list's Sort button).
+    pub menu: Option<Menu>,
+}
+
+impl LibraryState {
+    /// Saved sorts; the Songs tab starts in its saved order.
+    pub fn new(backend: &halo_backend::Backend) -> Self {
+        let sorts = sort::load(backend);
+        let mut songs_query = halo_backend::commands::library::TracksQuery::default();
+        if let Some(s) = sorts.get(&LibraryTab::Songs) {
+            songs_query = sort::apply_to_query(&songs_query, *s);
+        }
+        LibraryState { sorts, songs_query, ..Default::default() }
+    }
+
+    pub fn sort_of(&self, tab: LibraryTab) -> Sort {
+        self.sorts.get(&tab).copied().unwrap_or_else(|| sort::default_for(tab))
+    }
+
+    /// Re-sort a loaded collection after a load or a sort change.
+    fn resort(&mut self, tab: LibraryTab) {
+        let s = self.sort_of(tab);
+        match tab {
+            LibraryTab::Albums => sort::albums(&mut self.albums.items, s),
+            LibraryTab::Artists => sort::named(&mut self.artists.items, s),
+            LibraryTab::AlbumArtists => sort::named(&mut self.album_artists.items, s),
+            LibraryTab::Composers => sort::named(&mut self.composers.items, s),
+            LibraryTab::Genres => sort::named(&mut self.genres.items, s),
+            LibraryTab::Years => sort::years(&mut self.years.items, s),
+            LibraryTab::Songs | LibraryTab::Folders => {}
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Menu {
+    More,
+    Sort,
+}
+
+/// Tabs shown in the bar; the rest live under "More ▾".
+const MAIN_TABS: [LibraryTab; 4] = [LibraryTab::Songs, LibraryTab::Albums, LibraryTab::Artists, LibraryTab::Genres];
+const MORE_TABS: [LibraryTab; 4] =
+    [LibraryTab::AlbumArtists, LibraryTab::Composers, LibraryTab::Years, LibraryTab::Folders];
+
+#[derive(Debug, Clone)]
+pub enum LMsg {
+    ToggleMenu(Menu),
+    CloseMenu,
+    OpenTab(LibraryTab),
+    SetSort(SortBy),
+}
+
+pub fn update(app: &mut Halo, msg: LMsg) -> Task<Message> {
+    let st = &mut app.pages.library;
+    match msg {
+        LMsg::ToggleMenu(m) => {
+            st.menu = if st.menu == Some(m) { None } else { Some(m) };
+            Task::none()
+        }
+        LMsg::CloseMenu => {
+            st.menu = None;
+            Task::none()
+        }
+        LMsg::OpenTab(tab) => {
+            st.menu = None;
+            let route = tab_route(app, tab);
+            app.update(Message::ReplaceRoute(route))
+        }
+        LMsg::SetSort(by) => {
+            st.menu = None;
+            set_sort(app, by)
+        }
+    }
+}
+
+/// Apply a Sort ▾ pick to what's on screen.
+fn set_sort(app: &mut Halo, by: SortBy) -> Task<Message> {
+    if let Route::Songs(q) = app.route().clone() {
+        let s = sort::of_query(&q).pick(by);
+        let next = sort::apply_to_query(&q, s);
+        // Only the Songs tab's order is remembered; album / artist lists
+        // open in their usual order.
+        let save = if crate::route::is_all_songs(&q) {
+            app.pages.library.sorts.insert(LibraryTab::Songs, s);
+            sort::save(&app.backend, LibraryTab::Songs, s)
+        } else {
+            Task::none()
+        };
+        return Task::batch([save, app.update(Message::ReplaceRoute(Route::Songs(next)))]);
+    }
+    let Some(tab) = app.route().library_tab().or_else(|| standalone_tab(app.route())) else {
+        return Task::none();
+    };
+    let st = &mut app.pages.library;
+    let s = st.sort_of(tab).pick(by);
+    st.sorts.insert(tab, s);
+    st.resort(tab);
+    sort::save(&app.backend, tab, s)
+}
+
+/// Standalone collection routes (`/artists` …) share their tab's sort.
+fn standalone_tab(route: &Route) -> Option<LibraryTab> {
+    match route {
+        Route::Artists => Some(LibraryTab::Artists),
+        Route::AlbumArtists => Some(LibraryTab::AlbumArtists),
+        Route::Composers => Some(LibraryTab::Composers),
+        Route::Genres => Some(LibraryTab::Genres),
+        Route::Years => Some(LibraryTab::Years),
+        _ => None,
+    }
+}
+
+/// "Sort: <option> ↑ ▾" button with its dropdown of `options`.
+pub fn sort_button<'a>(app: &'a Halo, options: Vec<(SortBy, &'static str)>, cur: Sort) -> Element<'a, Message> {
+    let open = app.pages.library.menu == Some(Menu::Sort);
+    let lm = |m: LMsg| Message::Page(Msg::Library(m));
+    let arrow = if cur.desc { Icon::ArrowDown } else { Icon::ArrowUp };
+    let btn = button(
+        row![
+            ui::muted("Sort:", theme::TEXT_SM),
+            text(sort::label(&options, cur.by)).size(theme::TEXT_SM).font(theme::MEDIUM),
+            icon(arrow, 12.0),
+            icon(Icon::ChevronDown, 12.0),
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center),
+    )
+    .padding(Padding::from([6.0, 10.0]))
+    .style(theme::btn_ghost)
+    .on_press(lm(LMsg::ToggleMenu(Menu::Sort)));
+    let menu = open.then(|| {
+        let mut col = column![].width(200);
+        for (by, label) in options {
+            let active = by == cur.by;
+            let mut r = row![text(label).size(theme::TEXT_SM), ui::fill()].align_y(Alignment::Center);
+            if active {
+                r = r.push(icon(arrow, 12.0));
+            }
+            col = col.push(
+                button(r)
+                    .width(Length::Fill)
+                    .padding(Padding::from([6.0, 12.0]))
+                    .style(theme::btn_list_item(active, theme::R_SM))
+                    .on_press(lm(LMsg::SetSort(by))),
+            );
+        }
+        menu_box(col)
+    });
+    popover(btn, menu)
+        .placement(Placement::BelowEnd)
+        .gap(4.0)
+        .on_dismiss(lm(LMsg::CloseMenu))
+        .into()
+}
+
+fn menu_box<'a>(col: iced::widget::Column<'a, Message>) -> Element<'a, Message> {
+    container(col)
+        .padding(4)
+        .style(|th| {
+            let mut s = theme::popover(th);
+            s.border.radius = theme::radius(theme::R_MD);
+            s
+        })
+        .into()
 }
 
 /// Where a Library tab lives: Songs, Albums and Folders have their own
@@ -138,14 +313,33 @@ pub fn load(app: &mut Halo, kind: Kind) -> Task<Message> {
 
 pub fn on_loaded(app: &mut Halo, l: Loaded) {
     let st = &mut app.pages.library;
-    match l {
-        Loaded::Albums(r) => st.albums.set(r),
-        Loaded::Artists(r) => st.artists.set(r),
-        Loaded::AlbumArtists(r) => st.album_artists.set(r),
-        Loaded::Composers(r) => st.composers.set(r),
-        Loaded::Genres(r) => st.genres.set(r),
-        Loaded::Years(r) => st.years.set(r),
-    }
+    let tab = match l {
+        Loaded::Albums(r) => {
+            st.albums.set(r);
+            LibraryTab::Albums
+        }
+        Loaded::Artists(r) => {
+            st.artists.set(r);
+            LibraryTab::Artists
+        }
+        Loaded::AlbumArtists(r) => {
+            st.album_artists.set(r);
+            LibraryTab::AlbumArtists
+        }
+        Loaded::Composers(r) => {
+            st.composers.set(r);
+            LibraryTab::Composers
+        }
+        Loaded::Genres(r) => {
+            st.genres.set(r);
+            LibraryTab::Genres
+        }
+        Loaded::Years(r) => {
+            st.years.set(r);
+            LibraryTab::Years
+        }
+    };
+    st.resort(tab);
 }
 
 /// Loading / error / empty states, else the virtualised grid of `c`.
@@ -197,45 +391,87 @@ pub fn view_library(app: &Halo, tab: LibraryTab) -> Element<'_, Message> {
     tabbed(app, tab, tab_grid(app, tab, format!("library:{tab:?}")))
 }
 
-/// Library page: title and tab bar, then `body` (the current tab's content).
+/// Library page: title, then the tab bar — Songs | Albums | Artists |
+/// Genres | More ▾ on the left, Sort ▾ on the right — then `body`.
 pub fn tabbed<'a>(app: &'a Halo, tab: LibraryTab, body: Element<'a, Message>) -> Element<'a, Message> {
-    let mut tabs = row![].spacing(4);
-    for tb in LibraryTab::ALL {
-        let active = tb == tab;
-        let label = container(text(tb.label()).size(theme::TEXT_SM).font(theme::MEDIUM))
-            .padding(Padding::from([8.0, 12.0]));
-        let underline = container(Space::new())
-            .width(Length::Fill)
-            .height(2)
-            .style(move |_| iced::widget::container::Style {
-                background: active.then(|| t().foreground.into()),
-                ..Default::default()
-            });
-        tabs = tabs.push(
-            button(column![label, underline].width(Length::Shrink))
-                .padding(0)
-                .style(move |_, st| iced::widget::button::Style {
-                    text_color: if active || matches!(st, iced::widget::button::Status::Hovered) {
-                        t().foreground
-                    } else {
-                        t().muted_fg
-                    },
-                    ..Default::default()
-                })
-                .on_press(Message::ReplaceRoute(tab_route(app, tb))),
-        );
+    let lm = |m: LMsg| Message::Page(Msg::Library(m));
+    let mut tabs = row![].spacing(4).align_y(Alignment::End);
+    for tb in MAIN_TABS {
+        tabs = tabs.push(tab_button(text(tb.label()).size(theme::TEXT_SM).font(theme::MEDIUM).into(), tb == tab, lm(LMsg::OpenTab(tb))));
     }
+
+    // "More ▾": shows the open tab's name when it is one of these.
+    let in_more = MORE_TABS.contains(&tab);
+    let more_label = row![
+        text(if in_more { tab.label() } else { "More" }).size(theme::TEXT_SM).font(theme::MEDIUM),
+        icon(Icon::ChevronDown, 12.0),
+    ]
+    .spacing(4)
+    .align_y(Alignment::Center);
+    let more_menu = (app.pages.library.menu == Some(Menu::More)).then(|| {
+        let mut col = column![].width(180);
+        for tb in MORE_TABS {
+            col = col.push(
+                button(text(tb.label()).size(theme::TEXT_SM))
+                    .width(Length::Fill)
+                    .padding(Padding::from([6.0, 12.0]))
+                    .style(theme::btn_list_item(tb == tab, theme::R_SM))
+                    .on_press(lm(LMsg::OpenTab(tb))),
+            );
+        }
+        menu_box(col)
+    });
+    tabs = tabs.push(
+        popover(tab_button(more_label.into(), in_more, lm(LMsg::ToggleMenu(Menu::More))), more_menu)
+            .placement(Placement::BelowStart)
+            .gap(4.0)
+            .on_dismiss(lm(LMsg::CloseMenu)),
+    );
+
+    let opts = match (tab, app.route()) {
+        (LibraryTab::Songs, Route::Songs(q)) => Some((sort::song_options(q), sort::of_query(q))),
+        _ if !sort::options(tab).is_empty() => Some((sort::options(tab).to_vec(), app.pages.library.sort_of(tab))),
+        _ => None,
+    };
+    let mut bar = row![tabs, ui::fill()].align_y(Alignment::Center);
+    if let Some((options, cur)) = opts {
+        bar = bar.push(sort_button(app, options, cur));
+    }
+
     let header = column![
         ui::h1("Library"),
         ui::vspace(16.0),
         stack![
             column![Space::new().height(Length::Fill), ui::hline::<Message>()].height(38),
-            tabs,
+            bar.height(38),
         ]
         .height(38),
     ]
     .padding(Padding::from([24.0, 24.0]).bottom(0.0));
     column![header, body].height(Length::Fill).into()
+}
+
+/// A tab: label with a 2px underline when active.
+fn tab_button<'a>(label: Element<'a, Message>, active: bool, msg: Message) -> Element<'a, Message> {
+    let underline = container(Space::new())
+        .width(Length::Fill)
+        .height(2)
+        .style(move |_| iced::widget::container::Style {
+            background: active.then(|| t().foreground.into()),
+            ..Default::default()
+        });
+    button(column![container(label).padding(Padding::from([8.0, 12.0])), underline].width(Length::Shrink))
+        .padding(0)
+        .style(move |_, st| iced::widget::button::Style {
+            text_color: if active || matches!(st, iced::widget::button::Status::Hovered) {
+                t().foreground
+            } else {
+                t().muted_fg
+            },
+            ..Default::default()
+        })
+        .on_press(msg)
+        .into()
 }
 
 fn tab_grid(app: &Halo, tab: LibraryTab, key: String) -> Element<'_, Message> {
