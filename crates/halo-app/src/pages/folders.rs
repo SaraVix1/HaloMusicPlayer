@@ -141,6 +141,13 @@ pub fn long_duration(ms: i64) -> String {
     if m >= 60 { format!("{} h {} m", m / 60, m % 60) } else { format!("{m} m") }
 }
 
+/// The open folder lists songs of its own (the tab bar then shows ☰ / ▦).
+pub fn shows_songs(app: &Halo) -> bool {
+    open_path(app)
+        .and_then(|p| find(&app.pages.folders.roots, &p).and_then(|c| c.last().map(|n| n.direct > 0)))
+        .unwrap_or(false)
+}
+
 /// The folder a route shows (`Route::Folders` with one music folder: it).
 fn open_path(app: &Halo) -> Option<String> {
     match app.route() {
@@ -288,10 +295,13 @@ fn folder_page<'a>(app: &'a Halo, chain: Vec<&'a FolderNode>) -> Element<'a, Mes
     let current = app.player.current_track.as_ref().map(|t| t.track_id);
     let songs = &st.dir_tracks;
     let has_songs = node.direct > 0;
+    let cards_view = app.pages.library.songs_view == super::library::SongsView::Cards;
     let body: Element<'a, Message> = if node.children.is_empty() {
         // Only songs: the fast virtual list.
         if songs.loading {
             note("Loading…")
+        } else if cards_view {
+            tracks::cards(songs, current, app.route().scroll_key(), &app.pages.scroll)
         } else {
             tracks::table(songs, Variant::Songs, current, app.route().scroll_key(), &app.pages.scroll)
         }
@@ -299,7 +309,13 @@ fn folder_page<'a>(app: &'a Halo, chain: Vec<&'a FolderNode>) -> Element<'a, Mes
         let mut col = column![cards(node.children.iter().collect())].spacing(24);
         if has_songs {
             col = col.push(text("Songs in this folder").size(theme::TITLE).font(theme::SEMIBOLD));
-            col = col.push(if songs.loading { note("Loading…") } else { tracks::rows(songs, Variant::Songs, current) });
+            col = col.push(if songs.loading {
+                note("Loading…")
+            } else if cards_view {
+                tracks::cards_static(songs, current)
+            } else {
+                tracks::rows(songs, Variant::Songs, current)
+            });
         }
         common::scroll_page(app.route().scroll_key(), col)
     };

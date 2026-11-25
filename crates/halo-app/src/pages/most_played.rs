@@ -19,15 +19,15 @@ pub fn load(app: &mut Halo) -> Task<Message> {
 pub fn view(app: &Halo) -> Element<'_, Message> {
     tracks::page(
         app,
-        Some("Most Played"),
+        Some(crate::ui::h1("Most Played").into()),
         &app.pages.most,
         Variant::MostPlayed,
-        None,
         super::common::empty_state(
             crate::icons::Icon::TrendingUp,
             "Nothing played yet",
             "Your most played songs show up here.",
             Some(("Go to Library", Message::Navigate(crate::route::Route::Library(None)))),
         ),
+        true,
     )
 }

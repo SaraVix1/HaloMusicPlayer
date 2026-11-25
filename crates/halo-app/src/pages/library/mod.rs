@@ -85,12 +85,26 @@ pub struct LibraryState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SongsView {
-    #[default]
     List,
+    #[default]
     Cards,
 }
 
 const SONGS_VIEW_PREF: &str = "library.songs_view";
+
+impl SongsView {
+    /// From the saved pref; anything but "list" (including nothing saved
+    /// yet) is Cards, the default.
+    pub fn from_pref(v: Option<&str>) -> Self {
+        if v == Some("list") { SongsView::List } else { SongsView::Cards }
+    }
+    pub fn pref(self) -> &'static str {
+        match self {
+            SongsView::List => "list",
+            SongsView::Cards => "cards",
+        }
+    }
+}
 
 impl LibraryState {
     /// Saved sorts; the Songs tab starts in its saved order.
@@ -100,10 +114,9 @@ impl LibraryState {
         if let Some(s) = sorts.get(&LibraryTab::Songs) {
             songs_query = sort::apply_to_query(&songs_query, *s);
         }
-        let songs_view = match halo_backend::commands::ui::get_pref(SONGS_VIEW_PREF.into(), backend.db()).ok().flatten().as_deref() {
-            Some("cards") => SongsView::Cards,
-            _ => SongsView::List,
-        };
+        let songs_view = SongsView::from_pref(
+            halo_backend::commands::ui::get_pref(SONGS_VIEW_PREF.into(), backend.db()).ok().flatten().as_deref(),
+        );
         LibraryState { sorts, songs_query, songs_view, ..Default::default() }
     }
 
@@ -168,7 +181,7 @@ pub fn update(app: &mut Halo, msg: LMsg) -> Task<Message> {
         }
         LMsg::SongsView(v) => {
             st.songs_view = v;
-            let value = if v == SongsView::Cards { "cards" } else { "list" };
+            let value = v.pref();
             crate::app::fire(&app.backend, move |b| {
                 halo_backend::commands::ui::set_pref(SONGS_VIEW_PREF.into(), value.into(), b.db())
             })
@@ -451,13 +464,21 @@ pub fn tabbed<'a>(app: &'a Halo, tab: LibraryTab, body: Element<'a, Message>) ->
             .on_dismiss(lm(LMsg::CloseMenu)),
     );
 
-    let opts = match (tab, app.route()) {
-        (LibraryTab::Songs, Route::Songs(q)) => Some((sort::song_options(q), sort::of_query(q))),
+    // Song lists (the Songs tab and filtered lists) sort their songs; the
+    // collection tabs sort their cards.
+    let opts = match app.route() {
+        Route::Songs(q) => Some((sort::song_options(q), sort::of_query(q))),
         _ if !sort::options(tab).is_empty() => Some((sort::options(tab).to_vec(), app.pages.library.sort_of(tab))),
         _ => None,
     };
+    // ☰ / ▦ wherever songs are listed (album pages are always rows).
+    let show_toggle = match app.route() {
+        Route::Songs(q) => q.album.is_none(),
+        Route::Folders | Route::Folder(_) => super::folders::shows_songs(app),
+        _ => false,
+    };
     let mut bar = row![tabs, ui::fill()].spacing(8).align_y(Alignment::Center);
-    if tab == LibraryTab::Songs {
+    if show_toggle {
         bar = bar.push(view_toggle(app.pages.library.songs_view));
     }
     if let Some((options, cur)) = opts {
@@ -477,8 +498,25 @@ pub fn tabbed<'a>(app: &'a Halo, tab: LibraryTab, body: Element<'a, Message>) ->
     column![header, body].height(Length::Fill).into()
 }
 
-/// ☰ List | ▦ Cards for the Songs tab.
-fn view_toggle<'a>(cur: SongsView) -> Element<'a, Message> {
+/// Breadcrumb for a filtered list: `Genres › Beat` (the tab links back to
+/// its grid).
+pub fn crumbs<'a>(app: &Halo, tab: LibraryTab, label: String) -> Element<'a, Message> {
+    let k = t();
+    row![
+        button(text(tab.label()).size(theme::BODY))
+            .padding(0)
+            .style(theme::btn_text(k.muted_fg, k.foreground))
+            .on_press(Message::Navigate(tab_route(app, tab))),
+        icon(Icon::ChevronRight, 14.0).color(theme::a(k.muted_fg, 0.7)),
+        crate::widgets::line(label).size(theme::TITLE).font(theme::SEMIBOLD),
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center)
+    .into()
+}
+
+/// ☰ List | ▦ Cards (one shared preference for every song list).
+pub(crate) fn view_toggle<'a>(cur: SongsView) -> Element<'a, Message> {
     let seg = |v: SongsView, ic: Icon, label: &'static str| {
         ui::tip(
             button(crate::ui::icon_box(ic, 15.0, 30.0, 28.0))
@@ -530,3 +568,19 @@ fn tab_grid(app: &Halo, tab: LibraryTab, key: String) -> Element<'_, Message> {
         LibraryTab::Songs | LibraryTab::Folders => Space::new().into(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::SongsView;
+
+    #[test]
+    fn songs_view_pref_round_trips_and_defaults_to_cards() {
+        for v in [SongsView::List, SongsView::Cards] {
+            assert_eq!(SongsView::from_pref(Some(v.pref())), v);
+        }
+        assert_eq!(SongsView::from_pref(None), SongsView::Cards);
+        assert_eq!(SongsView::from_pref(Some("garbage")), SongsView::Cards);
+        assert_eq!(SongsView::default(), SongsView::Cards);
+    }
+}
+
