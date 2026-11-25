@@ -275,6 +275,9 @@ pub struct Album {
     pub track_count: i64,
     pub year: Option<i64>,
     pub album_art_path: Option<String>,
+    /// When the album's newest track entered the library (`added_at`),
+    /// for "Recently added" sorting. 'YYYY-MM-DD HH:MM:SS', UTC.
+    pub added: Option<String>,
 }
 
 pub fn get_albums(db: &Mutex<Connection>) -> Result<Vec<Album>, String> {
@@ -292,7 +295,8 @@ pub fn get_albums(db: &Mutex<Connection>) -> Result<Vec<Album>, String> {
                      JOIN track_album_artists taa ON taa.track_id = t3.id
                      JOIN album_artists aa ON aa.id = taa.album_artist_id
                      WHERE t3.album_name = t.album_name
-                     ORDER BY aa.name COLLATE NOCASE)) AS album_artists_csv
+                     ORDER BY aa.name COLLATE NOCASE)) AS album_artists_csv,
+                    MAX(COALESCE(t.added_at, t.scanned_at)) AS added
              FROM tracks t
              WHERE t.album_name IS NOT NULL AND t.album_name != ''
              GROUP BY t.album_name
@@ -308,6 +312,7 @@ pub fn get_albums(db: &Mutex<Connection>) -> Result<Vec<Album>, String> {
                 track_count: row.get(1)?,
                 year: row.get(2)?,
                 album_art_path: row.get(3)?,
+                added: row.get(5)?,
                 album_artists: csv
                     .map(|s| {
                         s.split(',')
@@ -388,7 +393,9 @@ fn album_shelf(conn: &Connection, key: &str, having: &str, limit: i64) -> Result
                  JOIN track_artists ta ON ta.track_id = t4.id
                  JOIN artists a ON a.id = ta.artist_id
                  WHERE t4.album_name = top.name
-                 ORDER BY a.name COLLATE NOCASE))
+                 ORDER BY a.name COLLATE NOCASE)),
+                (SELECT MAX(COALESCE(t5.added_at, t5.scanned_at)) FROM tracks t5
+                 WHERE t5.album_name = top.name)
          FROM top
          ORDER BY top.k DESC, top.name COLLATE NOCASE"
     );
@@ -403,6 +410,7 @@ fn album_shelf(conn: &Connection, key: &str, having: &str, limit: i64) -> Result
                 year: row.get(2)?,
                 album_art_path: row.get(3)?,
                 album_artists: split_csv(album_artists.or(artists)),
+                added: row.get(6)?,
             })
         })
         .map_err(|e| e.to_string())?;

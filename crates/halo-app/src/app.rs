@@ -187,7 +187,10 @@ impl Halo {
             mini: mini::State::default(),
             lyrics: lyrics::State::default(),
             palette: palette::State::default(),
-            pages: pages::Pages::default(),
+            pages: pages::Pages {
+                library: pages::library::LibraryState::new(&backend),
+                ..Default::default()
+            },
             media_started: false,
         };
         app.apply_theme();

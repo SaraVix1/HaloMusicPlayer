@@ -100,8 +100,9 @@ crates/
             │                   # recently added, `get_home_shelves`)
             ├── tracks.rs       # shared track table (Songs / Recently Played / Most Played)
             ├── songs.rs  recently_played.rs  most_played.rs  albums.rs  folders.rs  queue.rs
-            ├── library/        # mod.rs (tabs page: Songs | Albums | Artists | … | Folders; Songs,
-            │                   # Albums, Folders keep their own routes) + cards.rs + artists, album_artists, composers,
+            ├── library/        # mod.rs (tabs page: Songs | Albums | Artists | Genres | More ▾, Sort ▾;
+            │                   # Songs, Albums, Folders keep their own routes) + sort.rs (per-tab sort,
+            │                   # saved as `library.sort.<tab>` prefs) + cards.rs + artists, album_artists, composers,
             │                   # genres, years (each also backs its standalone route)
             ├── playlists.rs  playlist_detail.rs  smart_playlist.rs
             ├── settings/       # mod.rs (nav + row helpers) + general, appearance, playback,

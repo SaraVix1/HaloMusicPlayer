@@ -1,9 +1,9 @@
-//! Track table shared by All Songs, Recently Played and Most Played
-//! (`all-songs.tsx` / `recently-played.tsx` / `most-played.tsx`):
-//! `# | art | Title | Artist | Album | Genre/Last Played/Plays | Duration |
-//! Rating | actions`, 44px virtualised rows, sortable headers (All Songs),
-//! double-click to play from a row, artist/album/genre links, hover-only
-//! actions (add to queue, add to playlist, edit metadata).
+//! Track list shared by All Songs (Library → Songs tab, and album / artist /
+//! genre lists), Recently Played and Most Played: 56px virtualised rows —
+//! cover · title over artist · album (or last played / plays) · rating ·
+//! duration — double-click to play from a row, artist/album links, rating
+//! stars shown when rated or on hover, hover actions (add to queue, add to
+//! playlist, edit metadata). Sorting is the Sort ▾ menu (`library::sort`).
 
 use halo_backend::commands::library::{Track, TracksQuery};
 use iced::widget::{button, column, container, hover, row, text, tooltip::Position, Row};
@@ -20,36 +20,13 @@ use crate::theme::{self, a, t};
 use crate::ui::{self, art, stars, tip};
 use crate::widgets::{line, surface};
 
-pub const ROW_H: f32 = 44.0;
+pub const ROW_H: f32 = 56.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Variant {
     Songs,
     Recent,
     MostPlayed,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SortKey {
-    Title,
-    Artist,
-    Album,
-    Genre,
-    Duration,
-    Rating,
-}
-
-impl SortKey {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            SortKey::Title => "title",
-            SortKey::Artist => "artist",
-            SortKey::Album => "album",
-            SortKey::Genre => "genre",
-            SortKey::Duration => "duration",
-            SortKey::Rating => "rating",
-        }
-    }
 }
 
 /// Track list state for one table.
@@ -80,18 +57,16 @@ fn file_name(path: &str) -> String {
     path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()
 }
 
-/// Column widths: 48 | 48 | 2fr | 1.5fr | 1.5fr | 1fr | 80 | 100 | 72.
-fn cells<'a>(items: [Element<'a, Message>; 9]) -> Row<'a, Message> {
+/// Column widths: cover | title + artist | album (or extra) | rating |
+/// duration | hover actions.
+fn cells<'a>(items: [Element<'a, Message>; 6]) -> Row<'a, Message> {
     let widths = [
-        Length::Fixed(48.0),
-        Length::Fixed(48.0),
-        Length::FillPortion(20),
-        Length::FillPortion(15),
-        Length::FillPortion(15),
-        Length::FillPortion(10),
-        Length::Fixed(80.0),
-        Length::Fixed(100.0),
-        Length::Fixed(72.0),
+        Length::Fixed(56.0),
+        Length::FillPortion(5),
+        Length::FillPortion(3),
+        Length::Fixed(96.0),
+        Length::Fixed(64.0),
+        Length::Fixed(96.0),
     ];
     let mut r = row![].align_y(Alignment::Center).height(Length::Fill);
     for (el, w) in items.into_iter().zip(widths) {
@@ -107,108 +82,46 @@ fn px3<'a>(el: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
         .into()
 }
 
+fn blank<'a>() -> Element<'a, Message> {
+    text("").into()
+}
+
 /// A muted text link that navigates to a filtered song list.
-fn link<'a>(label: String, route: Route) -> Element<'a, Message> {
-    button(line(label).size(theme::TEXT_SM))
+fn link<'a>(label: String, route: Route, size: f32) -> Element<'a, Message> {
+    button(line(label).size(size))
         .padding(0)
         .style(theme::btn_link)
         .on_press(Message::Navigate(route))
         .into()
 }
 
-fn links<'a>(values: &[String], make: impl Fn(&str) -> TracksQuery) -> Element<'a, Message> {
+fn links<'a>(values: &[String], size: f32, make: impl Fn(&str) -> TracksQuery) -> Element<'a, Message> {
     if values.is_empty() {
-        return ui::muted("—", theme::TEXT_SM).into();
+        return ui::muted("Unknown artist", size).into();
     }
     let mut r = row![].align_y(Alignment::Center);
     for (i, v) in values.iter().enumerate() {
         if i > 0 {
-            r = r.push(ui::muted(", ", theme::TEXT_SM));
+            r = r.push(ui::muted(", ", size));
         }
-        r = r.push(link(v.clone(), Route::Songs(make(v))));
+        r = r.push(link(v.clone(), Route::Songs(make(v)), size));
     }
     container(r).clip(true).width(Length::Fill).into()
 }
 
-fn header_cell<'a>(
-    label: &'static str,
-    key: Option<SortKey>,
-    arrow: Option<(SortKey, bool)>,
-    right: bool,
-) -> Element<'a, Message> {
-    let mut content = row![text(label).size(theme::TEXT_SM).font(theme::MEDIUM)]
-        .spacing(4)
-        .align_y(Alignment::Center);
-    if let (Some(k), Some((s, asc))) = (key, arrow) {
-        if k == s {
-            content = content.push(icon(if asc { Icon::ArrowUp } else { Icon::ArrowDown }, 12.0));
-        }
-    }
-    let inner = container(content)
-        .padding(Padding::from([8.0, 12.0]))
-        .width(Length::Fill)
-        .align_x(if right { Alignment::End } else { Alignment::Start });
-    match key {
-        Some(k) => button(inner)
-            .padding(0)
-            .width(Length::Fill)
-            .style(theme::btn_link)
-            .on_press(Message::Page(Msg::Sort(k)))
-            .into(),
-        _ => inner.into(),
-    }
-}
-
-/// Header + virtualised rows inside a rounded bordered box.
+/// Virtualised track rows.
 pub fn table<'a>(
     list: &'a TrackList,
     variant: Variant,
-    sortable: bool,
-    arrow: Option<(SortKey, bool)>,
     current_track: Option<i64>,
     scroll_key: String,
     memory: &'a ScrollMemory,
 ) -> Element<'a, Message> {
-    let k = t();
-    let third_label = match variant {
-        Variant::Songs => "Genre",
-        Variant::Recent => "Last Played",
-        Variant::MostPlayed => "Plays",
-    };
-    let sk = |key| if sortable { Some(key) } else { None };
-    let head = cells([
-        header_cell("#", None, arrow, false),
-        text("").into(),
-        header_cell("Title", sk(SortKey::Title), arrow, false),
-        header_cell("Artist", sk(SortKey::Artist), arrow, false),
-        header_cell("Album", sk(SortKey::Album), arrow, false),
-        header_cell(third_label, sk(SortKey::Genre), arrow, false),
-        header_cell("Duration", sk(SortKey::Duration), arrow, true),
-        header_cell("Rating", sk(SortKey::Rating), arrow, false),
-        text("").into(),
-    ])
-    .height(36);
-    let head = container(head).width(Length::Fill).style(move |_| container::Style {
-        background: Some(a(t().muted, 0.4).into()),
-        text_color: Some(t().muted_fg),
-        ..container::Style::default()
-    });
-
     let ids: Vec<i64> = list.ids();
-    let rows = common::vlist(scroll_key, memory, list.tracks.len(), ROW_H, 0.0, move |i| {
+    common::vlist(scroll_key, memory, list.tracks.len(), ROW_H, 0.0, move |i| {
         let tr = &list.tracks[i];
         track_row(tr, i, variant, current_track == Some(tr.id), list.star_hover, ids.clone())
-    });
-
-    container(column![head, rows])
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .clip(true)
-        .style(move |_| container::Style {
-            border: theme::border(k.border, 1.0, theme::R_MD),
-            ..container::Style::default()
-        })
-        .into()
+    })
 }
 
 fn track_row<'a>(
@@ -223,49 +136,56 @@ fn track_row<'a>(
     let id = tr.id;
     let title = tr.title.clone().unwrap_or_else(|| file_name(&tr.file_path));
     let third: Element<'a, Message> = match variant {
-        Variant::Songs => links(&tr.genres, |g| TracksQuery {
-            genre: Some(g.to_string()),
-            ..TracksQuery::default()
-        }),
+        Variant::Songs => match &tr.album_name {
+            Some(al) => link(
+                al.clone(),
+                Route::Songs(TracksQuery {
+                    album: Some(al.clone()),
+                    ..TracksQuery::default()
+                }),
+                theme::TEXT_SM,
+            ),
+            None => ui::muted("—", theme::TEXT_SM).into(),
+        },
         Variant::Recent => ui::muted(relative_time(tr.last_played_at), theme::TEXT_SM).into(),
-        Variant::MostPlayed => ui::muted(tr.play_count.to_string(), theme::TEXT_SM).into(),
-    };
-    let album: Element<'a, Message> = match &tr.album_name {
-        Some(al) => link(
-            al.clone(),
-            Route::Songs(TracksQuery {
-                album: Some(al.clone()),
-                ..TracksQuery::default()
-            }),
-        ),
-        None => ui::muted("—", theme::TEXT_SM).into(),
+        Variant::MostPlayed => ui::muted(crate::format::plural(tr.play_count, "play", "plays"), theme::TEXT_SM).into(),
     };
     let hover_val = star_hover.filter(|(tid, _)| *tid == id).map(|(_, s)| s);
-
-    let base = cells([
-        px3(ui::muted((index + 1).to_string(), theme::TEXT_SM)),
-        art(tr.album_art_path.as_deref(), 32.0, theme::R_SM),
-        px3(line(title).size(theme::TEXT_SM).width(Length::Fill)),
-        px3(links(&tr.artists, |a_| TracksQuery {
-            artist: Some(a_.to_string()),
-            ..TracksQuery::default()
-        })),
-        px3(album),
-        px3(third),
-        px3(
-            container(ui::muted(duration(tr.duration_ms), theme::TEXT_SM))
-                .width(Length::Fill)
-                .align_x(Alignment::End),
-        ),
-        px3(stars(
+    let rating = move || {
+        stars(
             tr.rating,
             12.0,
             false,
             hover_val,
             move |h| Message::Page(Msg::StarHover(h.map(|s| (id, s)))),
             move |r| Message::Player(PlayerCmd::SetRating(id, r)),
-        )),
-        text("").into(),
+        )
+    };
+    let title_color = if is_current { k.primary } else { k.foreground };
+
+    let base = cells([
+        container(art(tr.album_art_path.as_deref(), 40.0, theme::R_SM))
+            .padding(Padding::ZERO.left(12.0))
+            .into(),
+        px3(
+            column![
+                line(title).size(theme::TEXT_SM).font(theme::MEDIUM).color(title_color).width(Length::Fill),
+                links(&tr.artists, theme::TEXT_XS, |a_| TracksQuery {
+                    artist: Some(a_.to_string()),
+                    ..TracksQuery::default()
+                }),
+            ]
+            .spacing(2),
+        ),
+        px3(third),
+        // Unrated tracks show their stars only on hover (in the overlay).
+        if tr.rating > 0 { px3(rating()) } else { blank() },
+        px3(
+            container(ui::muted(duration(tr.duration_ms), theme::TEXT_SM))
+                .width(Length::Fill)
+                .align_x(Alignment::End),
+        ),
+        blank(),
     ]);
 
     let action = |i: Icon, size: f32, label: &'static str, msg: Message| {
@@ -278,43 +198,45 @@ fn track_row<'a>(
             Position::Top,
         )
     };
-    let actions = row![
-        ui::fill(),
+    // Same columns as `base`, so the stars land exactly over their cell.
+    let overlay = cells([
+        blank(),
+        blank(),
+        blank(),
+        px3(rating()),
+        blank(),
         container(
             row![
                 action(Icon::ListPlus, 14.0, "Add to queue", Message::Player(PlayerCmd::AddToQueue(id))),
                 action(Icon::Plus, 14.0, "Add to playlist", Message::Page(Msg::AddToPlaylist(vec![id]))),
                 action(Icon::Pencil, 13.0, "Edit metadata", Message::Page(Msg::EditMetadata(id))),
             ]
-            .align_y(Alignment::Center)
+            .align_y(Alignment::Center),
         )
-        .width(72)
+        .width(Length::Fill)
         .padding(Padding::ZERO.right(8.0))
-        .align_x(Alignment::End),
-    ]
-    .height(Length::Fill)
-    .align_y(Alignment::Center);
+        .align_x(Alignment::End)
+        .into(),
+    ]);
 
-    let content = hover(base, actions);
-    column![
-        ui::hline(),
-        surface(content)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .on_double_click(Message::Player(PlayerCmd::PlayTracks(ids, index as i64)))
-            .style(move |s| container::Style {
-                background: if is_current {
-                    Some(a(k.muted, 0.4).into())
-                } else if s.hovered {
-                    Some(a(k.muted, 0.3).into())
-                } else {
-                    None
-                },
-                text_color: Some(k.foreground),
-                ..container::Style::default()
-            }),
-    ]
-    .into()
+    let content = hover(base, overlay);
+    surface(content)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .on_double_click(Message::Player(PlayerCmd::PlayTracks(ids, index as i64)))
+        .style(move |s| container::Style {
+            background: if is_current {
+                Some(a(k.muted, 0.5).into())
+            } else if s.hovered {
+                Some(a(k.muted, 0.35).into())
+            } else {
+                None
+            },
+            border: theme::no_border(theme::R_MD),
+            text_color: Some(k.foreground),
+            ..container::Style::default()
+        })
+        .into()
 }
 
 /// "Play All" (primary, filled play) + "Shuffle Play" (outline) buttons.
@@ -373,9 +295,18 @@ pub fn page<'a>(
 ) -> Element<'a, Message> {
     let current = app.player.current_track.as_ref().map(|t| t.track_id);
     let n = list.tracks.len();
-    let right = row![play_buttons(list.ids()), common::count(n, "track", "tracks")]
-        .spacing(8)
+    let mut right = row![common::count(n, "track", "tracks"), play_buttons(list.ids())]
+        .spacing(12)
         .align_y(Alignment::Center);
+    // Filtered song lists (album, artist …) sort here; the Songs tab's Sort
+    // button is in the Library tab bar.
+    if let (Some(_), Variant::Songs, Some(q)) = (title, variant, q) {
+        right = right.push(super::library::sort_button(
+            app,
+            super::library::sort::song_options(q),
+            super::library::sort::of_query(q),
+        ));
+    }
     let header: Element<'a, Message> = match title {
         Some(title) => common::header(title, right),
         None => row![crate::ui::fill(), right].align_y(Alignment::Center).into(),
@@ -393,9 +324,7 @@ pub fn page<'a>(
     } else if n == 0 {
         empty
     } else {
-        let sortable = variant == Variant::Songs;
-        let arrow = q.filter(|q| super::songs::has_arrow(q)).map(super::songs::sort_state);
-        table(list, variant, sortable, arrow, current, key, &app.pages.scroll)
+        table(list, variant, current, key, &app.pages.scroll)
     };
     col = col.push(body);
     common::padded(col)
