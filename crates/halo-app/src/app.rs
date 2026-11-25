@@ -649,7 +649,8 @@ impl Halo {
         {
             let backend = self.backend.clone();
             window::run(id, move |w| {
-                use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+                // `window_handle()` comes with iced's `Window` trait.
+                use raw_window_handle::RawWindowHandle;
                 let hwnd = w.window_handle().ok().and_then(|h| match h.as_raw() {
                     RawWindowHandle::Win32(h) => Some(h.hwnd.get() as *mut std::ffi::c_void),
                     _ => None,
