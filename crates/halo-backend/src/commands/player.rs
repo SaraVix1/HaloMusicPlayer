@@ -956,6 +956,32 @@ pub fn add_to_queue(app: Backend, track_id: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// Append `track_ids` to the end of the queue in one transaction ("Add to
+/// Queue" on an album / artist). Shuffle on: each lands at a random point
+/// among the not-yet-played tracks, as with `add_to_queue`.
+pub fn add_tracks_to_queue(app: Backend, track_ids: Vec<i64>) -> Result<(), String> {
+    if track_ids.is_empty() {
+        return Ok(());
+    }
+    {
+        let db = app.state::<Mutex<Connection>>();
+        let conn = db.lock().map_err(|e| e.to_string())?;
+        let len = queue_length(&conn)?;
+        insert_at(&conn, len, &track_ids)?;
+        if shuffle_enabled(&conn) && len > 0 {
+            let current = read_int(&conn, KEY_CURRENT_INDEX).unwrap_or(0);
+            let mut order = load_shuffle(&app, &conn, len, current);
+            let mut rng = fastrand::Rng::new();
+            for idx in len..len + track_ids.len() as i64 {
+                order.on_insert(idx, &mut rng);
+            }
+            commit_shuffle(&app, &conn, &order)?;
+        }
+    }
+    emit_state(&app);
+    Ok(())
+}
+
 pub fn remove_from_queue(app: Backend, queue_id: i64) -> Result<(), String> {
     let player_handle = app.state::<PlayerHandle>();
     let db = app.state::<Mutex<Connection>>();
@@ -1257,6 +1283,31 @@ mod tests {
         insert_at(&conn, 0, &[]).unwrap();
         assert_eq!(order(&conn), [0, 4, 5, 1, 2, 3]);
         assert!(contiguous(&conn));
+    }
+
+    #[test]
+    fn appending_many_keeps_order_and_positions() {
+        let conn = test_db("append", 8);
+        replace_queue(&conn, &[0, 1]).unwrap();
+        let len = queue_length(&conn).unwrap();
+        insert_at(&conn, len, &[5, 6, 7]).unwrap();
+        assert_eq!(order(&conn), [0, 1, 5, 6, 7]);
+        assert!(contiguous(&conn));
+    }
+
+    #[test]
+    fn shuffle_order_stays_valid_after_appending_many() {
+        let mut o = ShuffleOrder::new(3, 0, &mut fastrand::Rng::with_seed(7));
+        let mut rng = fastrand::Rng::with_seed(9);
+        for idx in 3..6 {
+            o.on_insert(idx, &mut rng);
+        }
+        assert!(o.is_consistent(6));
+        assert_eq!(o.current(), Some(0));
+        // New tracks are all still to come.
+        for idx in 3..6 {
+            assert!(o.upcoming().contains(&idx));
+        }
     }
 
     #[test]

@@ -224,6 +224,14 @@ fn track_row<'a>(
         .width(Length::Fill)
         .height(Length::Fill)
         .on_double_click(Message::Player(PlayerCmd::PlayTracks(ids, index as i64)))
+        .on_right_press_at(crate::components::context_menu::opener(
+            crate::components::context_menu::Target::Track {
+                id,
+                album: tr.album_name.clone(),
+                artists: tr.artists.clone(),
+                playlist: None,
+            },
+        ))
         .style(move |s| container::Style {
             background: if is_current {
                 Some(a(k.muted, 0.5).into())

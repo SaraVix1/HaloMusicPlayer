@@ -10,7 +10,7 @@ use iced::keyboard::{self, key, Key, Modifiers};
 use iced::widget::{column, container, mouse_area, row, stack};
 use iced::{event, mouse, window, Element, Length, Point, Size, Subscription, Task, Theme};
 
-use crate::components::{fullscreen, lyrics, mini, now_playing, palette, sidebar, title_bar, queue_panel};
+use crate::components::{context_menu, fullscreen, lyrics, mini, now_playing, palette, sidebar, title_bar, queue_panel};
 use crate::pages;
 use crate::route::{History, Route};
 use crate::theme;
@@ -88,6 +88,7 @@ pub enum Message {
     NowPlaying(now_playing::Msg),
     Fullscreen(fullscreen::Msg),
     QueuePanel(queue_panel::Msg),
+    Context(context_menu::Msg),
     Mini(mini::Msg),
     Lyrics(lyrics::Msg),
     Palette(palette::Msg),
@@ -131,6 +132,7 @@ pub struct Halo {
     pub lyrics: lyrics::State,
     pub fullscreen: fullscreen::State,
     pub queue_panel: queue_panel::State,
+    pub context: context_menu::State,
     pub palette: palette::State,
     pub pages: pages::Pages,
     media_started: bool,
@@ -204,6 +206,7 @@ impl Halo {
             lyrics: lyrics::State::default(),
             fullscreen: fullscreen::State::default(),
             queue_panel: queue_panel::State::default(),
+            context: context_menu::State::default(),
             palette: palette::State::default(),
             pages: pages::Pages {
                 library: pages::library::LibraryState::new(&backend),
@@ -315,6 +318,7 @@ impl Halo {
                 self.lyrics.open = false;
                 // e.g. a Ctrl+K result picked over full-screen now playing.
                 let leave = fullscreen::update(self, fullscreen::Msg::Close);
+                context_menu::close(self);
                 self.history.push(route);
                 Task::batch([leave, pages::on_navigate(self, prev)])
             }
@@ -409,6 +413,7 @@ impl Halo {
             Message::NowPlaying(m) => now_playing::update(self, m),
             Message::Fullscreen(m) => fullscreen::update(self, m),
             Message::QueuePanel(m) => queue_panel::update(self, m),
+            Message::Context(m) => context_menu::update(self, m),
             Message::Mini(m) => mini::update(self, m),
             Message::Lyrics(m) => lyrics::update(self, m),
             Message::Palette(m) => palette::update(self, m),
@@ -433,9 +438,6 @@ impl Halo {
                 }
                 if self.player.current_track.as_ref().map(|t| t.track_id) != prev_track {
                     tasks.push(self.on_track_changed());
-                }
-                if self.player.queue_length != prev_len {
-                    tasks.push(pages::on_queue_changed(self));
                 }
                 tasks.push(lyrics::on_position(self));
                 Task::batch(tasks)
@@ -543,6 +545,9 @@ impl Halo {
                 palette::toggle(self)
             }
             Key::Character(c) if cmd && c.eq_ignore_ascii_case("m") => self.open_mini(),
+            Key::Named(key::Named::Escape) if context_menu::is_open(self) => {
+                self.update(Message::Context(context_menu::Msg::Close))
+            }
             Key::Named(key::Named::Escape) if self.palette.open => {
                 self.update(Message::Palette(palette::Msg::Close))
             }
@@ -689,6 +694,9 @@ impl Halo {
         }
         if self.palette.open {
             layers = layers.push(palette::view(self));
+        }
+        if let Some(menu) = context_menu::view(self) {
+            layers = layers.push(menu);
         }
         layers = layers.push(resize_handles(main_id));
         layers.into()

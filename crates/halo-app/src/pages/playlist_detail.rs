@@ -410,6 +410,14 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                 .padding(Padding::from([6.0, 12.0]))
                 .opacity(if dragged { 0.4 } else { 1.0 })
                 .on_double_click(Message::Player(PlayerCmd::PlayTracks(ids2, idx as i64)))
+                .on_right_press_at(crate::components::context_menu::opener(
+                    crate::components::context_menu::Target::Track {
+                        id: r.track_id,
+                        album: r.album_name.clone(),
+                        artists: r.artists.clone(),
+                        playlist: Some(r.playlist_track_id),
+                    },
+                ))
                 .on_enter(dm(DMsg::DragOver(idx)))
                 .style(move |_| iced::widget::container::Style {
                     background: is_current.then(|| a(t().muted, 0.4).into()),
