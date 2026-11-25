@@ -489,6 +489,18 @@ pub fn divider_alpha(alpha: f32) -> impl Fn(&Theme) -> container::Style {
     }
 }
 
+/// Queue panel: raised surface with a soft shadow on its left edge.
+pub fn side_panel(_: &Theme) -> container::Style {
+    let k = t();
+    container::Style {
+        background: Some(k.popover.into()),
+        text_color: Some(k.popover_fg),
+        border: no_border(0.0),
+        shadow: shadow_lg(),
+        ..container::Style::default()
+    }
+}
+
 /// Dark veil over the blurred art in full-screen now playing.
 pub fn scrim(_: &Theme) -> container::Style {
     container::Style {

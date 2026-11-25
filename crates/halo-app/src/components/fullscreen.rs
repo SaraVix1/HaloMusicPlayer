@@ -16,7 +16,7 @@ use crate::components::{lyrics, now_playing};
 use crate::format::duration_u;
 use crate::icons::{icon, Icon};
 use crate::theme::{self, a, t};
-use crate::ui::{art, icon_box, tip};
+use crate::ui::{art, icon_box, stars, tip};
 use crate::widgets::{line, waveform};
 
 /// Side of the shrunken cover that gets blurred (then stretched to fill).
@@ -208,6 +208,15 @@ fn main_area(app: &Halo, size: iced::Size) -> Element<'_, Message> {
         cover,
         line(title).size(theme::DISPLAY).font(theme::SEMIBOLD).width(Length::Fill),
         line(sub.join(" · ")).size(theme::BODY).color(k.muted_fg).width(Length::Fill),
+        // Rating lives here (and on song rows), not in the now-playing bar.
+        stars(
+            track.map(|t| t.rating).unwrap_or(0),
+            16.0,
+            track.is_none(),
+            app.now_playing.star_hover,
+            |h| Message::NowPlaying(now_playing::Msg::StarHover(h)),
+            |r| Message::NowPlaying(now_playing::Msg::Rate(r)),
+        ),
     ]
     .spacing(8)
     .width(side);
