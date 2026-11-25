@@ -48,7 +48,7 @@ pub struct TextLine<'a> {
 pub fn line<'a>(content: impl Into<std::borrow::Cow<'a, str>>) -> TextLine<'a> {
     TextLine {
         content: content.into(),
-        size: theme::TEXT_SM,
+        size: theme::BODY,
         font: theme::SANS,
         color: None,
         line_height: 1.43,

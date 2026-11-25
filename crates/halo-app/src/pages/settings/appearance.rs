@@ -1,4 +1,5 @@
-//! Settings → Appearance: Light / Dark / System theme segmented control.
+//! Settings → Appearance: Light / Dark / System theme segmented control and
+//! the "Accent from album art" switch.
 
 use halo_backend::commands::ui;
 use iced::widget::{button, column, container, row, text};
@@ -12,6 +13,7 @@ use crate::theme::{self, t};
 #[derive(Debug, Clone)]
 pub enum Msg {
     SetTheme(&'static str),
+    SetAccentFromArt(bool),
 }
 
 pub fn update(app: &mut Halo, m: Msg) -> Task<Message> {
@@ -23,6 +25,15 @@ pub fn update(app: &mut Halo, m: Msg) -> Task<Message> {
                 move |b| ui::set_theme(th.to_string(), b.clone(), b.db()),
                 done,
             )
+        }
+        Msg::SetAccentFromArt(on) => {
+            app.accent_from_art = on;
+            let save = bg(
+                &app.backend,
+                move |b| ui::set_pref(crate::app::ACCENT_PREF.into(), on.to_string(), b.db()),
+                done,
+            );
+            Task::batch([save, app.refresh_accent()])
         }
     }
 }
@@ -37,7 +48,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         let active = app.theme_pref == value;
         seg = seg.push(
             button(
-                row![icon(ic, 14.0), text(label).size(theme::TEXT_SM)]
+                row![icon(ic, 14.0), text(label).size(theme::BODY)]
                     .spacing(6)
                     .align_y(Alignment::Center),
             )
@@ -64,6 +75,14 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             "Theme",
             "Choose how Halo looks.",
             container(seg).padding(2).style(theme::bordered(theme::R_MD)),
+        ),
+        setting_row(
+            "Accent from album art",
+            "Tint buttons, progress and highlights with the current cover's colour. Off: Halo blue.",
+            crate::ui::toggle(
+                app.accent_from_art,
+                msg(SMsg::Appearance(Msg::SetAccentFromArt(!app.accent_from_art))),
+            ),
         ),
     ]
     .into()

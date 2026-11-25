@@ -138,7 +138,9 @@ On Linux Halo runs under X11 (XWayland on a Wayland session) unless `HALO_WAYLAN
 
 ### Look & feel
 
-All colours come from `theme::t()` (active `Tokens`); never hard-code colours in pages — add a token or style fn to `theme.rs`. Icons are Lucide glyphs from the bundled icon font (`icons::icon(Icon::X, size)`), which inherit the button's text colour on hover; filled variants (heart, star, play) use SVGs via `ui::filled`. Text that must truncate uses `widgets::line(..)` (ellipsis) or `.marquee()` / `.looping()`.
+All colours come from `theme::t()` (a copy of the active `Tokens`); never hard-code colours in pages — add a token or style fn to `theme.rs`. `primary` is the **accent**: picked from the current track's art (`accent.rs`, on track change, off the UI thread), lightness-clamped for the background (`theme::readable`), Halo blue `#3d9bde` without art or with Settings → Appearance → "Accent from album art" off. Dark is the default theme.
+
+Three text sizes only: `theme::TITLE` (20, semibold), `BODY` (14), `SMALL` (12); hierarchy by weight. Geist everywhere (Geist Mono only for LRC lyrics text). Radii: `R_MD` 8 for controls, `R_LG` 12 for surfaces (cards, covers, popovers, dialogs), `R_XS`/`R_SM` for tiny things. No divider lines: the title bar, sidebar and now-playing bar share the `sidebar` colour (`theme::frame`) around the page; popovers / dialogs use a shadow, not an outline. Icons are Lucide glyphs from the bundled icon font (`icons::icon(Icon::X, size)`), which inherit the button's text colour on hover; filled variants (heart, star, play) use SVGs via `ui::filled`. Text that must truncate uses `widgets::line(..)` (ellipsis) or `.marquee()` / `.looping()`.
 
 ## Testing the UI headless
 

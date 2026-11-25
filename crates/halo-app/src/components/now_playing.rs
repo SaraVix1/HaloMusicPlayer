@@ -14,7 +14,7 @@ use crate::format::{countdown, duration_u};
 use crate::icons::{icon, Icon};
 use crate::route::{Route, SettingsTab};
 use crate::theme::{self, a, t};
-use crate::ui::{self, art, filled, hline, icon_box, stars, tip, Filled};
+use crate::ui::{self, art, filled, icon_box, stars, tip, Filled};
 use crate::widgets::{line, popover, waveform, Placement};
 
 const PRESETS: [u64; 6] = [5, 10, 15, 30, 45, 60];
@@ -203,10 +203,10 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     let artist = track
         .map(|t| t.artists.join(", "))
         .filter(|s| !s.is_empty());
-    let dot = || text("·").size(theme::TEXT_XS).color(a(k.muted_fg, 0.5));
+    let dot = || text("·").size(theme::SMALL).color(a(k.muted_fg, 0.5));
 
     let mut line1 = row![line(title)
-        .size(theme::TEXT_SM)
+        .size(theme::BODY)
         .font(theme::MEDIUM)
         .color(if has_track { k.foreground } else { a(k.foreground, 0.4) })
         .max_width(155.0)]
@@ -215,7 +215,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     if let Some(album) = track.and_then(|t| t.album_name.clone()) {
         line1 = line1.push(dot()).push(
             line(album)
-                .size(theme::TEXT_XS)
+                .size(theme::SMALL)
                 .color(k.muted_fg)
                 .width(Length::Fill)
                 .marquee(),
@@ -224,13 +224,13 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
 
     let line2: Element<'_, Message> = match (composer, artist) {
         (Some(c), artist) => {
-            let mut r = row![line(c).size(theme::TEXT_XS).color(k.muted_fg).max_width(155.0)]
+            let mut r = row![line(c).size(theme::SMALL).color(k.muted_fg).max_width(155.0)]
                 .spacing(4)
                 .align_y(Alignment::Center);
             if let Some(a_) = artist {
                 r = r.push(dot()).push(
                     line(a_)
-                        .size(theme::TEXT_XS)
+                        .size(theme::SMALL)
                         .color(k.muted_fg)
                         .width(Length::Fill)
                         .marquee(),
@@ -239,12 +239,12 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             r.into()
         }
         (None, Some(a_)) => line(a_)
-            .size(theme::TEXT_XS)
+            .size(theme::SMALL)
             .color(k.muted_fg)
             .width(Length::Fill)
             .marquee()
             .into(),
-        (None, None) => text("—").size(theme::TEXT_XS).color(k.muted_fg).into(),
+        (None, None) => text("—").size(theme::SMALL).color(k.muted_fg).into(),
     };
 
     let info = row![
@@ -341,7 +341,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     let display_pos = st.scrub.unwrap_or(p.player.position_ms);
     let time_label = |s: String, right: bool| {
         let t_ = text(s)
-            .size(theme::TEXT_10)
+            .size(theme::SMALL)
             .color(k.muted_fg)
             .line_height(1.0)
             .width(36);
@@ -444,11 +444,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         .height(87)
         .align_y(Alignment::Center);
 
-    column![
-        hline(),
-        container(bar).width(Length::Fill).style(theme::page),
-    ]
-    .into()
+    container(bar).width(Length::Fill).style(theme::frame).into()
 }
 
 fn sleep_timer(app: &Halo) -> Element<'_, Message> {
@@ -458,10 +454,10 @@ fn sleep_timer(app: &Halo) -> Element<'_, Message> {
 
     let mut label = row![icon(Icon::Moon, 15.0)].spacing(4).align_y(Alignment::Center);
     if active && s.end_of_song {
-        label = label.push(text("EOS").size(theme::TEXT_XS).line_height(1.0));
+        label = label.push(text("EOS").size(theme::SMALL).line_height(1.0));
     } else if active {
         if let Some(rem) = s.remaining_secs {
-            label = label.push(text(countdown(rem)).size(theme::TEXT_XS).line_height(1.0));
+            label = label.push(text(countdown(rem)).size(theme::SMALL).line_height(1.0));
         }
     }
     let anchor = button(label)
@@ -475,12 +471,12 @@ fn sleep_timer(app: &Halo) -> Element<'_, Message> {
         .on_press(np(Msg::SleepToggle));
 
     let popup = app.now_playing.sleep_open.then(|| {
-        let mut header = row![text("Sleep timer").size(theme::TEXT_XS).font(theme::MEDIUM), ui::fill()]
+        let mut header = row![text("Sleep timer").size(theme::SMALL).font(theme::MEDIUM), ui::fill()]
             .align_y(Alignment::Center);
         if active {
             header = header.push(
                 button(
-                    row![icon(Icon::X, 11.0), text("Cancel").size(theme::TEXT_XS)]
+                    row![icon(Icon::X, 11.0), text("Cancel").size(theme::SMALL)]
                         .spacing(4)
                         .align_y(Alignment::Center),
                 )
@@ -500,7 +496,7 @@ fn sleep_timer(app: &Halo) -> Element<'_, Message> {
                         .is_some_and(|rem| (rem as i64 - m as i64 * 60).abs() < 30);
                 r = r.push(
                     button(
-                        container(text(format!("{m}m")).size(theme::TEXT_XS))
+                        container(text(format!("{m}m")).size(theme::SMALL))
                             .width(Length::Fill)
                             .align_x(Alignment::Center),
                     )
@@ -512,7 +508,7 @@ fn sleep_timer(app: &Halo) -> Element<'_, Message> {
             }
             grid = grid.push(r);
         }
-        let eos = button(text("End of current song").size(theme::TEXT_XS))
+        let eos = button(text("End of current song").size(theme::SMALL))
             .width(Length::Fill)
             .padding(Padding::from([6.0, 8.0]))
             .style(theme::btn_chip(active && s.end_of_song, theme::R_XS))

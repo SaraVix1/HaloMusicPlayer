@@ -125,8 +125,8 @@ pub fn subscription(app: &Halo) -> Option<Subscription<Message>> {
 /// `SectionHeader`: base semibold title, sm muted description, separator.
 pub fn section_header<'a>(title: &'a str, description: &'a str) -> Element<'a, Message> {
     column![
-        text(title).size(theme::TEXT_BASE).font(theme::SEMIBOLD),
-        ui::muted(description, theme::TEXT_SM),
+        text(title).size(theme::BODY).font(theme::SEMIBOLD),
+        ui::muted(description, theme::BODY),
         ui::vspace(10.0),
         hline(),
     ]
@@ -142,13 +142,13 @@ pub fn setting_row<'a>(
     description: &'a str,
     control: impl Into<Element<'a, Message>>,
 ) -> Element<'a, Message> {
-    let left = column![text(label).size(theme::TEXT_SM).font(theme::MEDIUM)]
+    let left = column![text(label).size(theme::BODY).font(theme::MEDIUM)]
         .spacing(2)
         .width(Length::Fill);
     let left = if description.is_empty() {
         left
     } else {
-        left.push(ui::muted(description, theme::TEXT_XS))
+        left.push(ui::muted(description, theme::SMALL))
     };
     column![
         row![left, control.into()]
@@ -162,7 +162,7 @@ pub fn setting_row<'a>(
 
 /// Bold sub-section label (`text-sm font-medium`).
 pub fn label<'a>(s: &'a str) -> Element<'a, Message> {
-    text(s).size(theme::TEXT_SM).font(theme::MEDIUM).into()
+    text(s).size(theme::BODY).font(theme::MEDIUM).into()
 }
 
 /// shadcn `Button variant="outline" size="sm"` with an optional icon.
@@ -184,7 +184,7 @@ pub fn sm_btn<'a>(
     if let Some(l) = lead {
         r = r.push(l);
     }
-    r = r.push(text(label).size(theme::TEXT_SM).font(theme::MEDIUM));
+    r = r.push(text(label).size(theme::BODY).font(theme::MEDIUM));
     button(container(r).height(28).align_y(Alignment::Center))
         .padding(Padding::from([0.0, 10.0]))
         .style(move |th, s| {
@@ -215,7 +215,7 @@ pub fn view(app: &Halo, tab: SettingsTab) -> Element<'_, Message> {
                 row![
                     icon(ic, 15.0),
                     text(c.label())
-                        .size(theme::TEXT_SM)
+                        .size(theme::BODY)
                         .font(if active { theme::MEDIUM } else { theme::SANS })
                 ]
                 .spacing(10)
@@ -254,7 +254,7 @@ pub fn view(app: &Halo, tab: SettingsTab) -> Element<'_, Message> {
     let mut body = column![].spacing(0);
     if let Some(e) = &app.pages.settings.error {
         body = body.push(
-            container(text(e.as_str()).size(theme::TEXT_SM).color(k.destructive))
+            container(text(e.as_str()).size(theme::BODY).color(k.destructive))
                 .padding(Padding::ZERO.bottom(16.0)),
         );
     }

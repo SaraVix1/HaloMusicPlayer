@@ -51,6 +51,8 @@ pub fn fire(
 #[derive(Debug, Clone)]
 pub enum Message {
     Noop,
+    /// Accent picked from a track's art (track id, colour or none).
+    AccentPicked(Option<i64>, Option<iced::Color>),
     Error(String),
     /// Several messages handled in order.
     Batch(Vec<Message>),
@@ -115,6 +117,8 @@ pub struct Halo {
     pub mini_id: Option<window::Id>,
 
     pub theme_pref: String,
+    /// Settings → Appearance → "Accent from album art".
+    pub accent_from_art: bool,
     pub system_mode: iced::theme::Mode,
 
     pub player: FullPlayerState,
@@ -168,6 +172,9 @@ pub fn main_window_settings() -> window::Settings {
     }
 }
 
+/// `app_state` key for Settings → Appearance → "Accent from album art".
+pub const ACCENT_PREF: &str = "ui.accent_from_art";
+
 impl Halo {
     pub fn new(backend: Backend) -> (Self, Task<Message>) {
         let theme_pref = backend.initial_theme().to_string();
@@ -180,6 +187,11 @@ impl Halo {
             main_visible: true,
             mini_id: None,
             theme_pref,
+            accent_from_art: commands::ui::get_pref(ACCENT_PREF.into(), backend.db())
+                .ok()
+                .flatten()
+                .as_deref()
+                != Some("false"),
             system_mode: iced::theme::Mode::Dark,
             player,
             history: History::default(),
@@ -248,12 +260,37 @@ impl Halo {
         Task::batch([
             now_playing::on_track(self, id),
             lyrics::on_track(self, id),
+            self.refresh_accent(),
         ])
+    }
+
+    /// Pick the accent from the current track's art (off the UI thread), or
+    /// use Halo's default when there's no art or the setting is off.
+    pub fn refresh_accent(&self) -> Task<Message> {
+        let cur = self.player.current_track.as_ref();
+        let art = cur.and_then(|t| t.album_art_path.clone()).filter(|p| !p.is_empty());
+        match art {
+            Some(path) if self.accent_from_art => {
+                let id = cur.map(|t| t.track_id);
+                bg(&self.backend, move |_| crate::accent::from_path(&path), move |c| Message::AccentPicked(id, c))
+            }
+            _ => {
+                theme::set_accent(theme::DEFAULT_ACCENT);
+                Task::none()
+            }
+        }
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Noop => Task::none(),
+            Message::AccentPicked(id, c) => {
+                // Ignore a late result for a track that's no longer playing.
+                if self.accent_from_art && id == self.player.current_track.as_ref().map(|t| t.track_id) {
+                    theme::set_accent(c.unwrap_or(theme::DEFAULT_ACCENT));
+                }
+                Task::none()
+            }
             Message::Error(e) => {
                 eprintln!("error: {e}");
                 Task::none()

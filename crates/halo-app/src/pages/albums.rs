@@ -19,7 +19,7 @@ use crate::widgets::{line, surface};
 const ALBUMS: GridSpec = GridSpec {
     min_item_width: 160.0,
     row_height: 240.0,
-    gap: 20.0,
+    gap: 24.0,
     px: 24.0,
     padding_top: 0.0,
     padding_bottom: 24.0,
@@ -80,7 +80,7 @@ pub(crate) fn album_card(al: &Album, side: f32) -> Element<'_, Message> {
         Length::Fill,
         Length::Fill,
         160.0,
-        theme::R_MD,
+        theme::R_LG,
     ))
     .width(Length::Fill)
     .height(Length::Fill)
@@ -119,11 +119,11 @@ pub(crate) fn album_card(al: &Album, side: f32) -> Element<'_, Message> {
     column![
         art_box,
         column![
-            button(line(al.name.clone()).size(theme::TEXT_SM).font(theme::MEDIUM))
+            button(line(al.name.clone()).size(theme::BODY).font(theme::MEDIUM))
                 .padding(0)
                 .style(theme::btn_text(k.foreground, k.foreground))
                 .on_press(Message::Navigate(album_route(&name))),
-            line(sub).size(theme::TEXT_XS).color(k.muted_fg).width(Length::Fill),
+            line(sub).size(theme::SMALL).color(k.muted_fg).width(Length::Fill),
         ]
         .spacing(0),
     ]

@@ -96,7 +96,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             "Close button",
             "What happens when you click the × in the title bar.",
             pick_list(&CLOSE_OPTS[..], selected, |o| gm(Msg::CloseBehavior(o)))
-                .text_size(theme::TEXT_SM)
+                .text_size(theme::BODY)
                 .padding(Padding::from([4.0, 8.0]))
                 .width(160)
                 .style(theme::pick)

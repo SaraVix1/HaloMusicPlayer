@@ -59,7 +59,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     if n > 0 {
         right = right.push(
             button(
-                row![icon(Icon::Trash2, 12.0), text("Clear").size(theme::TEXT_XS)]
+                row![icon(Icon::Trash2, 12.0), text("Clear").size(theme::SMALL)]
                     .spacing(6)
                     .align_y(Alignment::Center),
             )
@@ -108,13 +108,13 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                 art(q.album_art_path.as_deref(), 32.0, theme::R_SM),
                 column![
                     line(title)
-                        .size(theme::TEXT_SM)
+                        .size(theme::BODY)
                         .font(if is_current { theme::MEDIUM } else { theme::SANS })
                         .width(Length::Fill),
-                    line(sub).size(theme::TEXT_XS).color(k.muted_fg).width(Length::Fill),
+                    line(sub).size(theme::SMALL).color(k.muted_fg).width(Length::Fill),
                 ]
                 .width(Length::Fill),
-                container(text(duration(q.duration_ms)).size(theme::TEXT_XS).color(k.muted_fg))
+                container(text(duration(q.duration_ms)).size(theme::SMALL).color(k.muted_fg))
                     .width(48)
                     .align_x(Alignment::End),
                 ui::hspace(28.0),

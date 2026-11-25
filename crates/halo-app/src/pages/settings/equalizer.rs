@@ -292,18 +292,18 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     let header = column![
         row![
             column![
-                text("Equalizer").size(theme::TEXT_BASE).font(theme::SEMIBOLD),
+                text("Equalizer").size(theme::BODY).font(theme::SEMIBOLD),
                 row![
-                    ui::muted("10-band graphic equalizer. ", theme::TEXT_SM),
+                    ui::muted("10-band graphic equalizer. ", theme::BODY),
                     text(format!("Current: {}", active_preset.unwrap_or("Custom")))
-                        .size(theme::TEXT_SM)
+                        .size(theme::BODY)
                         .color(a(k.foreground, 0.7)),
                 ],
             ]
             .spacing(2)
             .width(Length::Fill),
             row![
-                ui::muted(if cfg.bypass { "Bypassed" } else { "Active" }, theme::TEXT_SM),
+                ui::muted(if cfg.bypass { "Bypassed" } else { "Active" }, theme::BODY),
                 toggle(!cfg.bypass, em(Msg::Bypass)),
             ]
             .spacing(8)
@@ -322,9 +322,9 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         col = col.push(
             container(
                 row![
-                    ui::muted("Device", theme::TEXT_SM),
+                    ui::muted("Device", theme::BODY),
                     crate::widgets::line(d.device_name.as_str())
-                        .size(theme::TEXT_SM)
+                        .size(theme::BODY)
                         .font(theme::MEDIUM)
                         .width(Length::Fill),
                     outline_btn(
@@ -359,7 +359,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     for p in PRESETS {
         let active = Some(p) == active_preset;
         chips = chips.push(
-            button(text(p).size(theme::TEXT_SM))
+            button(text(p).size(theme::BODY))
                 .padding(Padding::from([4.0, 12.0]))
                 .style(move |_, s| {
                     let k = t();
@@ -392,7 +392,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             row![
                 label("Presets"),
                 ui::fill(),
-                button(text("Reset to flat").size(theme::TEXT_XS))
+                button(text("Reset to flat").size(theme::SMALL))
                     .padding(0)
                     .style(theme::btn_icon)
                     .on_press_maybe((!is_flat).then(|| em(Msg::Preset("Flat")))),
@@ -414,7 +414,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             r = r.push(
                 container(
                     row![
-                        button(text(p.name.as_str()).size(theme::TEXT_SM))
+                        button(text(p.name.as_str()).size(theme::BODY))
                             .padding(0)
                             .style(theme::btn_text(fg, if active { k.primary_fg } else { k.foreground }))
                             .on_press(em(Msg::LoadUser(p.id))),
@@ -448,7 +448,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             text_input("Save current curve as…", &st.preset_name)
                 .on_input(|s| em(Msg::PresetName(s)))
                 .on_submit(em(Msg::SaveUser))
-                .size(theme::TEXT_SM)
+                .size(theme::BODY)
                 .padding(Padding::from([4.0, 12.0]))
                 .width(176)
                 .style(theme::input),
@@ -463,15 +463,15 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     let axis = column![
         Space::new().height(16),
         column![
-            text("+12").size(theme::TEXT_10).color(k.muted_fg),
+            text("+12").size(theme::SMALL).color(k.muted_fg),
             Space::new().height(Length::Fill),
-            text("+6").size(theme::TEXT_10).color(k.muted_fg),
+            text("+6").size(theme::SMALL).color(k.muted_fg),
             Space::new().height(Length::Fill),
-            text("0").size(theme::TEXT_10).color(k.muted_fg),
+            text("0").size(theme::SMALL).color(k.muted_fg),
             Space::new().height(Length::Fill),
-            text("−6").size(theme::TEXT_10).color(k.muted_fg),
+            text("−6").size(theme::SMALL).color(k.muted_fg),
             Space::new().height(Length::Fill),
-            text("−12").size(theme::TEXT_10).color(k.muted_fg),
+            text("−12").size(theme::SMALL).color(k.muted_fg),
         ]
         .height(120)
         .align_x(Alignment::End),
@@ -506,11 +506,11 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         bands = bands.push(
             column![
                 text(fmt_gain(g))
-                    .size(theme::TEXT_XS)
+                    .size(theme::SMALL)
                     .color(if g == 0.0 { k.muted_fg } else { k.foreground })
                     .height(16),
                 vs,
-                text(BAND_LABELS[i]).size(theme::TEXT_XS).color(k.muted_fg),
+                text(BAND_LABELS[i]).size(theme::SMALL).color(k.muted_fg),
             ]
             .spacing(4)
             .width(36)
@@ -542,7 +542,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                     .style(theme::slider_style),
                 container(
                     text(format!("{:.1}×", cfg.stereo_width))
-                        .size(theme::TEXT_SM)
+                        .size(theme::BODY)
                         .color(k.muted_fg)
                 )
                 .width(40)

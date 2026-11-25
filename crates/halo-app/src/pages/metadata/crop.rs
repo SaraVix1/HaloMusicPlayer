@@ -288,7 +288,7 @@ pub fn view(c: &CropState) -> Element<'_, Message> {
             .push(canvas_widget(Program { crop: c.crop, disp: c.disp }).width(dw).height(dh));
     } else {
         area = area.push(
-            center(text("Failed to load image").size(theme::TEXT_SM).color(k.destructive))
+            center(text("Failed to load image").size(theme::BODY).color(k.destructive))
                 .width(dw)
                 .height(dh),
         );
@@ -316,7 +316,7 @@ pub fn view(c: &CropState) -> Element<'_, Message> {
         if primary && c.processing {
             r = r.push(spin(Spinner::Loader, 13.0, spin_angle(), k.primary_fg));
         }
-        r = r.push(text(label).size(theme::TEXT_SM));
+        r = r.push(text(label).size(theme::BODY));
         button(r)
             .padding(Padding::from([6.0, 16.0]))
             .style(move |th, s| {
@@ -328,7 +328,7 @@ pub fn view(c: &CropState) -> Element<'_, Message> {
     };
     let ready = c.natural.is_some() && !c.processing;
     column![
-        container(ui::muted("Drag the crop box · resize from edges or corners", theme::TEXT_XS))
+        container(ui::muted("Drag the crop box · resize from edges or corners", theme::SMALL))
             .width(Length::Fill),
         area,
         row![

@@ -21,7 +21,7 @@ const SHELF_LIMIT: usize = 12;
 /// Card width bounds and gap (as the Albums grid).
 const CARD_MIN: f32 = 160.0;
 const CARD_MAX: f32 = 200.0;
-const GAP: f32 = 20.0;
+const GAP: f32 = 24.0;
 const PX: f32 = 24.0;
 /// Built-in "Recently Added" smart playlist (migration 005).
 const RECENTLY_ADDED_PLAYLIST: i64 = 1;
@@ -82,7 +82,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         let header = row![ui::h1(hello), ui::fill(), search_button()]
             .align_y(Alignment::Center)
             .spacing(16);
-        let mut col = column![header].spacing(32);
+        let mut col = column![header].spacing(40);
         if st.loading {
             col = col.push(note("Loading…"));
         } else if let Some(e) = &st.error {
@@ -110,7 +110,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
 fn search_button<'a>() -> Element<'a, Message> {
     let content = row![
         icon(Icon::Search, 14.0),
-        text("Search").size(theme::TEXT_SM),
+        text("Search").size(theme::BODY),
         ui::hspace(24.0),
         ui::kbd("Ctrl+K"),
     ]
@@ -127,7 +127,7 @@ fn search_button<'a>() -> Element<'a, Message> {
 fn shelf<'a>(title: &'a str, albums: &'a [Album], all: Route, n: usize, side: f32) -> Element<'a, Message> {
     let k = t();
     let see_all = button(
-        row![text("See all").size(theme::TEXT_SM), icon(Icon::ArrowRight, 14.0)]
+        row![text("See all").size(theme::BODY), icon(Icon::ArrowRight, 14.0)]
             .spacing(4)
             .align_y(Alignment::Center),
     )
@@ -135,7 +135,7 @@ fn shelf<'a>(title: &'a str, albums: &'a [Album], all: Route, n: usize, side: f3
     .style(theme::btn_text(k.muted_fg, k.foreground))
     .on_press(Message::Navigate(all));
     let head = row![
-        text(title).size(theme::TEXT_LG).font(theme::SEMIBOLD),
+        text(title).size(theme::TITLE).font(theme::SEMIBOLD),
         ui::fill(),
         see_all,
     ]
@@ -152,9 +152,9 @@ fn empty_state<'a>() -> Element<'a, Message> {
     let k = t();
     let content = column![
         icon(Icon::Music, 40.0).color(k.muted_fg),
-        text("No songs yet").size(theme::TEXT_LG).font(theme::SEMIBOLD),
-        ui::muted("Add a music folder and Halo will build your library.", theme::TEXT_SM),
-        button(text("Add a music folder").size(theme::TEXT_SM))
+        text("No songs yet").size(theme::TITLE).font(theme::SEMIBOLD),
+        ui::muted("Add a music folder and Halo will build your library.", theme::BODY),
+        button(text("Add a music folder").size(theme::BODY))
             .padding(Padding::from([8.0, 16.0]))
             .style(theme::btn_primary)
             .on_press(Message::Navigate(Route::Settings(Some(SettingsTab::Library)))),

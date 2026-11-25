@@ -186,7 +186,7 @@ fn card<'a>(
     route: Route,
 ) -> Element<'a, Message> {
     let k = t();
-    let mut title = row![line(name).size(theme::TEXT_SM).font(theme::MEDIUM)]
+    let mut title = row![line(name).size(theme::BODY).font(theme::MEDIUM)]
         .spacing(6)
         .align_y(Alignment::Center);
     if smart {
@@ -198,12 +198,12 @@ fn card<'a>(
             .height(48)
             .style(|_| iced::widget::container::Style {
                 background: Some(t().muted.into()),
-                border: theme::no_border(theme::R_MD),
+                border: theme::no_border(theme::R_LG),
                 ..Default::default()
             }),
         column![
             title,
-            line(sub).size(theme::TEXT_XS).color(k.muted_fg).width(Length::Fill),
+            line(sub).size(theme::SMALL).color(k.muted_fg).width(Length::Fill),
         ]
         .width(Length::Fill),
     ]
@@ -238,7 +238,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     let new_btn = button(
         row![
             icon(Icon::Plus, 14.0),
-            text("New").size(theme::TEXT_XS),
+            text("New").size(theme::SMALL),
             icon(Icon::ChevronDown, 12.0)
         ]
         .spacing(6)
@@ -254,7 +254,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     let menu = st.menu_open.then(|| {
         let item = |ic: Icon, label: &'static str, kind: NewKind| {
             button(
-                row![icon(ic, 14.0), text(label).size(theme::TEXT_XS)]
+                row![icon(ic, 14.0), text(label).size(theme::SMALL)]
                     .spacing(8)
                     .align_y(Alignment::Center),
             )
@@ -274,7 +274,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             .padding(Padding::from([4.0, 0.0]))
             .style(|th| {
                 let mut s = theme::popover(th);
-                s.border.radius = theme::radius(theme::R_MD);
+                s.border.radius = theme::radius(theme::R_LG);
                 s
             }),
         )
@@ -295,7 +295,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     let mut filters = row![].spacing(4);
     for (f, label) in [(Filter::All, "All"), (Filter::Manual, "Manual"), (Filter::Smart, "Smart")] {
         filters = filters.push(
-            button(text(label).size(theme::TEXT_XS))
+            button(text(label).size(theme::SMALL))
                 .padding(Padding::from([4.0, 10.0]))
                 .style(theme::btn_segment(st.filter == f))
                 .on_press(pm(PMsg::Filter(f))),
@@ -318,7 +318,7 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
                     .id(NEW_NAME_INPUT)
                     .on_input(|s| pm(PMsg::NameChanged(s)))
                     .on_submit(pm(PMsg::Create))
-                    .size(theme::TEXT_SM)
+                    .size(theme::BODY)
                     .padding(Padding::from([4.0, 0.0]))
                     .style(theme::input_underline)
                     .width(Length::Fill),

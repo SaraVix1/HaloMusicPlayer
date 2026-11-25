@@ -22,10 +22,10 @@ const YEARS: GridSpec = GridSpec {
 fn year_card<'a>(y: &YearStat) -> Element<'a, Message> {
     let year = y.year;
     let content = column![
-        text(year.to_string()).size(theme::TEXT_2XL).font(theme::SEMIBOLD),
+        text(year.to_string()).size(theme::TITLE).font(theme::SEMIBOLD),
         Space::new().height(Length::Fill),
         text(plural(y.track_count, "track", "tracks"))
-            .size(theme::TEXT_XS)
+            .size(theme::SMALL)
             .color(t().muted_fg),
     ]
     .height(Length::Fill);
