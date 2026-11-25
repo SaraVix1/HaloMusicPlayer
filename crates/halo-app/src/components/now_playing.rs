@@ -14,7 +14,7 @@ use crate::format::{countdown, duration_u};
 use crate::icons::{icon, Icon};
 use crate::route::{Route, SettingsTab};
 use crate::theme::{self, a, t};
-use crate::ui::{self, art, filled, icon_box, stars, tip, Filled};
+use crate::ui::{self, art, filled, icon_box, tip, Filled};
 use crate::widgets::{line, popover, waveform, Placement};
 
 const PRESETS: [u64; 6] = [5, 10, 15, 30, 45, 60];
@@ -247,8 +247,31 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         (None, None) => text("—").size(theme::SMALL).color(k.muted_fg).into(),
     };
 
+    // Last.fm love, beside the title.
+    let love: Option<Element<'_, Message>> = (st.lfm_connected && has_track).then(|| {
+        let loved = st.loved.unwrap_or(false);
+        let heart: Element<'_, Message> = if loved {
+            filled(Filled::Heart, 16.0, theme::RED_500).into()
+        } else {
+            icon(Icon::Heart, 16.0).into()
+        };
+        tip(
+            button(heart)
+                .padding(0)
+                .style(if loved {
+                    Box::new(theme::btn_text(theme::RED_500, theme::RED_400))
+                        as Box<dyn Fn(&iced::Theme, button::Status) -> button::Style>
+                } else {
+                    Box::new(theme::btn_icon)
+                })
+                .on_press_maybe(st.loved.is_some().then_some(np(Msg::ToggleLove))),
+            if loved { "Loved on Last.fm" } else { "Love on Last.fm" },
+            Position::Top,
+        )
+    });
+
     // Clicking the cover opens full-screen now playing.
-    let cover = button(art(track.and_then(|t| t.album_art_path.as_deref()), 40.0, theme::R_SM))
+    let cover = button(art(track.and_then(|t| t.album_art_path.as_deref()), 48.0, theme::R_SM))
         .padding(0)
         .style(theme::btn_bare)
         .on_press_maybe(has_track.then(crate::components::fullscreen::open_message));
@@ -258,6 +281,11 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     ]
     .spacing(12)
     .align_y(Alignment::Center)
+    .width(Length::Fill);
+    let info = match love {
+        Some(h) => row![info, h].spacing(12).align_y(Alignment::Center),
+        None => row![info],
+    }
     .width(320);
 
     // ── Transport ─────────────────────────────────────────────────────────────
@@ -315,14 +343,6 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         RepeatMode::One => "Repeat one",
     };
     let controls = row![
-        stars(
-            track.map(|t| t.rating).unwrap_or(0),
-            11.0,
-            !has_track,
-            st.star_hover,
-            |h| np(Msg::StarHover(h)),
-            |r| np(Msg::Rate(r)),
-        ),
         mode_btn(
             Icon::Shuffle,
             p.shuffle,
@@ -372,44 +392,10 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
     ]
     .spacing(8)
     .align_y(Alignment::Center);
-    let seek = container(seek).max_width(576);
-
-    let center_col = column![controls, seek]
-        .spacing(4)
-        .align_x(Alignment::Center)
-        .width(Length::Fill);
+    let center_col = container(controls).width(Length::Fill).align_x(Alignment::Center);
 
     // ── Right controls (176px) ────────────────────────────────────────────────
-    let mut right = row![].spacing(8).align_y(Alignment::Center);
-    if st.lfm_connected && has_track {
-        let loved = st.loved.unwrap_or(false);
-        let heart: Element<'_, Message> = if loved {
-            filled(Filled::Heart, 16.0, theme::RED_500).into()
-        } else {
-            icon(Icon::Heart, 16.0).into()
-        };
-        right = right.push(tip(
-            button(heart)
-                .padding(0)
-                .style(if loved {
-                    Box::new(theme::btn_text(theme::RED_500, theme::RED_400))
-                        as Box<dyn Fn(&iced::Theme, button::Status) -> button::Style>
-                } else {
-                    Box::new(theme::btn_icon)
-                })
-                .on_press_maybe(st.loved.is_some().then_some(np(Msg::ToggleLove))),
-            if loved { "Loved on Last.fm" } else { "Love on Last.fm" },
-            Position::Top,
-        ));
-    }
-    right = right.push(tip(
-        button(icon(Icon::SlidersHorizontal, 16.0))
-            .padding(0)
-            .style(theme::btn_icon)
-            .on_press(np(Msg::OpenEq)),
-        "Equalizer",
-        Position::Top,
-    ));
+    let mut right = row![].spacing(12).align_y(Alignment::Center);
     right = right.push(tip(
         button(icon(Icon::Mic2, 16.0))
             .padding(0)
@@ -423,7 +409,28 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
         "Lyrics",
         Position::Top,
     ));
+    right = right.push(tip(
+        button(icon(Icon::ListMusic, 16.0))
+            .padding(0)
+            .style(if app.queue_panel.open {
+                Box::new(theme::btn_text(k.primary, a(k.primary, 0.8)))
+                    as Box<dyn Fn(&iced::Theme, button::Status) -> button::Style>
+            } else {
+                Box::new(theme::btn_icon)
+            })
+            .on_press(crate::components::queue_panel::toggle_message()),
+        "Queue",
+        Position::Top,
+    ));
     right = right.push(sleep_timer(app));
+    right = right.push(tip(
+        button(icon(Icon::SlidersHorizontal, 16.0))
+            .padding(0)
+            .style(theme::btn_icon)
+            .on_press(np(Msg::OpenEq)),
+        "Equalizer",
+        Position::Top,
+    ));
     let vol = st.volume_drag.unwrap_or(p.player.volume);
     right = right.push(tip(
         button(icon(if vol > 0.0 { Icon::Volume2 } else { Icon::VolumeX }, 16.0))
@@ -441,13 +448,16 @@ pub fn view(app: &Halo) -> Element<'_, Message> {
             .height(16)
             .style(theme::slider_style),
     );
-    let right = container(right).width(176).align_x(Alignment::End);
+    let right = container(right).width(320).align_x(Alignment::End);
 
-    let bar = row![info, center_col, right]
+    // Row 1: track · transport · tools; row 2: the seek bar, full width.
+    let top = row![info, center_col, right]
         .spacing(16)
-        .padding(Padding::from([0.0, 16.0]))
-        .height(87)
+        .height(60)
         .align_y(Alignment::Center);
+    let bar = column![top, seek]
+        .spacing(2)
+        .padding(Padding::from([4.0, 16.0]).bottom(8.0));
 
     container(bar).width(Length::Fill).style(theme::frame).into()
 }

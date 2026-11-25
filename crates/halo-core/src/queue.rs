@@ -173,6 +173,26 @@ impl ShuffleOrder {
         }
     }
 
+    /// Queue indices that will play after the current one, in order.
+    pub fn upcoming(&self) -> &[i64] {
+        self.order.get(self.pos + 1..).unwrap_or(&[])
+    }
+
+    /// Reorder what's coming up: the entry at `upcoming()[from]` moves to
+    /// `upcoming()[to]` (the "Up next" list's drag-to-reorder). Played
+    /// entries and the current one are untouched. Returns false (and does
+    /// nothing) when either index is out of range.
+    pub fn move_upcoming(&mut self, from: usize, to: usize) -> bool {
+        let base = self.pos + 1;
+        let n = self.upcoming().len();
+        if from >= n || to >= n {
+            return false;
+        }
+        let x = self.order.remove(base + from);
+        self.order.insert(base + to, x);
+        true
+    }
+
     /// True if this is a valid order for a queue of `len` tracks: a
     /// permutation of `0..len` with the cursor in range.
     pub fn is_consistent(&self, len: i64) -> bool {
@@ -472,5 +492,33 @@ mod tests {
     #[test]
     fn repeat_mode_parse_unknown_defaults_to_off() {
         assert_eq!(RepeatMode::parse("garbage"), RepeatMode::Off);
+    }
+
+    #[test]
+    fn move_upcoming_reorders_only_whats_next() {
+        let mut o = ShuffleOrder { order: vec![4, 2, 0, 3, 1], pos: 1 };
+        assert_eq!(o.upcoming(), &[0, 3, 1]);
+        // Last upcoming → plays next.
+        assert!(o.move_upcoming(2, 0));
+        assert_eq!(o.order, vec![4, 2, 1, 0, 3]);
+        assert_eq!(o.current(), Some(2));
+        // Down again.
+        assert!(o.move_upcoming(0, 2));
+        assert_eq!(o.upcoming(), &[0, 3, 1]);
+        // Out of range: nothing changes.
+        assert!(!o.move_upcoming(3, 0));
+        assert!(!o.move_upcoming(0, 3));
+        assert_eq!(o.order, vec![4, 2, 0, 3, 1]);
+        assert!(o.is_consistent(5));
+        // Next plays what was moved to the top.
+        o.move_upcoming(1, 0);
+        assert_eq!(o.advance(&RepeatMode::Off, &mut fastrand::Rng::with_seed(1)), Some(3));
+    }
+
+    #[test]
+    fn upcoming_is_empty_at_the_end() {
+        let o = ShuffleOrder { order: vec![1, 0], pos: 1 };
+        assert!(o.upcoming().is_empty());
+        assert!(ShuffleOrder::default().upcoming().is_empty());
     }
 }

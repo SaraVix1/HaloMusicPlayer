@@ -1,6 +1,6 @@
 //! Icon-only navigation rail: Home, Library, Playlists, Search (opens the
-//! Ctrl+K palette) and, until the queue panel replaces it, Queue; Settings
-//! pinned to the bottom. Labels show as tooltips.
+//! Ctrl+K palette); Settings pinned to the bottom. Labels show as tooltips.
+//! The queue is the slide-in panel (≡ in the now-playing bar).
 
 use iced::widget::{button, column, container, tooltip::Position};
 use iced::{Alignment, Element, Length, Padding};
@@ -23,14 +23,12 @@ fn nav_button<'a>(i: Icon, label: &'static str, active: bool, msg: Message) -> E
 pub fn view(app: &Halo) -> Element<'_, Message> {
     let section = app.route().section();
     type Item = (Icon, &'static str, Option<(Section, Route)>);
-    let items: [Item; 5] = [
+    let items: [Item; 4] = [
         (Icon::House, "Home", Some((Section::Home, Route::Home))),
         // Library(None) opens the last visited tab.
         (Icon::Library, "Library", Some((Section::Library, Route::Library(None)))),
         (Icon::ListMusic, "Playlists", Some((Section::Playlists, Route::Playlists))),
         (Icon::Search, "Search (Ctrl+K)", None),
-        // TODO(5d): replaced by the slide-in queue panel (≡ in the now-playing bar).
-        (Icon::ListOrdered, "Queue", Some((Section::Queue, Route::Queue))),
     ];
 
     let mut top = column![].spacing(6).align_x(Alignment::Center);

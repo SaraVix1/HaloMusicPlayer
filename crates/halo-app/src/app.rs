@@ -10,7 +10,7 @@ use iced::keyboard::{self, key, Key, Modifiers};
 use iced::widget::{column, container, mouse_area, row, stack};
 use iced::{event, mouse, window, Element, Length, Point, Size, Subscription, Task, Theme};
 
-use crate::components::{fullscreen, lyrics, mini, now_playing, palette, sidebar, title_bar};
+use crate::components::{fullscreen, lyrics, mini, now_playing, palette, sidebar, title_bar, queue_panel};
 use crate::pages;
 use crate::route::{History, Route};
 use crate::theme;
@@ -87,6 +87,7 @@ pub enum Message {
 
     NowPlaying(now_playing::Msg),
     Fullscreen(fullscreen::Msg),
+    QueuePanel(queue_panel::Msg),
     Mini(mini::Msg),
     Lyrics(lyrics::Msg),
     Palette(palette::Msg),
@@ -129,6 +130,7 @@ pub struct Halo {
     pub mini: mini::State,
     pub lyrics: lyrics::State,
     pub fullscreen: fullscreen::State,
+    pub queue_panel: queue_panel::State,
     pub palette: palette::State,
     pub pages: pages::Pages,
     media_started: bool,
@@ -201,6 +203,7 @@ impl Halo {
             mini: mini::State::default(),
             lyrics: lyrics::State::default(),
             fullscreen: fullscreen::State::default(),
+            queue_panel: queue_panel::State::default(),
             palette: palette::State::default(),
             pages: pages::Pages {
                 library: pages::library::LibraryState::new(&backend),
@@ -405,6 +408,7 @@ impl Halo {
             Message::Player(cmd) => self.player_cmd(cmd),
             Message::NowPlaying(m) => now_playing::update(self, m),
             Message::Fullscreen(m) => fullscreen::update(self, m),
+            Message::QueuePanel(m) => queue_panel::update(self, m),
             Message::Mini(m) => mini::update(self, m),
             Message::Lyrics(m) => lyrics::update(self, m),
             Message::Palette(m) => palette::update(self, m),
@@ -417,8 +421,16 @@ impl Halo {
             BackendEvent::PlayerState(s) => {
                 let prev_track = self.player.current_track.as_ref().map(|t| t.track_id);
                 let prev_len = self.player.queue_length;
+                let prev_shuffle = self.player.shuffle;
                 self.player = *s;
                 let mut tasks = vec![];
+                // Up next depends on the track, the queue and the shuffle order.
+                if self.player.current_track.as_ref().map(|t| t.track_id) != prev_track
+                    || self.player.queue_length != prev_len
+                    || self.player.shuffle != prev_shuffle
+                {
+                    tasks.push(queue_panel::on_player_changed(self));
+                }
                 if self.player.current_track.as_ref().map(|t| t.track_id) != prev_track {
                     tasks.push(self.on_track_changed());
                 }
@@ -540,6 +552,9 @@ impl Halo {
             Key::Named(key::Named::F11) if self.fullscreen.open => {
                 self.update(Message::Fullscreen(fullscreen::Msg::ToggleOsFullscreen))
             }
+            Key::Named(key::Named::Escape) if self.queue_panel.open && !pages::has_dialog(self) => {
+                self.update(Message::QueuePanel(queue_panel::Msg::Close))
+            }
             Key::Named(key::Named::Escape) => pages::on_escape(self),
             Key::Named(key::Named::ArrowUp) if self.palette.open => {
                 self.update(Message::Palette(palette::Msg::Move(-1)))
@@ -650,14 +665,17 @@ impl Halo {
         } else {
             pages::view(self)
         };
-        let body = row![
-            sidebar::view(self),
-            container(content)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .style(theme::page),
-        ]
-        .height(Length::Fill);
+        let page = container(content)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(theme::page);
+        // The queue panel slides in over the page, right edge.
+        let page: Element<'_, Message> = if queue_panel::visible(self) {
+            stack![page, queue_panel::view(self)].width(Length::Fill).height(Length::Fill).into()
+        } else {
+            page.into()
+        };
+        let body = row![sidebar::view(self), page].height(Length::Fill);
 
         let shell = column![title_bar::view(self, main_id), body, now_playing::view(self)]
             .width(Length::Fill)
@@ -704,6 +722,9 @@ impl Halo {
             subs.push(s);
         }
         if let Some(s) = mini::subscription(self) {
+            subs.push(s);
+        }
+        if let Some(s) = queue_panel::subscription(self) {
             subs.push(s);
         }
         Subscription::batch(subs)

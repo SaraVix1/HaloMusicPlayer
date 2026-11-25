@@ -679,6 +679,10 @@ pub fn set_repeat(app: Backend, mode: RepeatMode) -> Result<(), String> {
 
 pub fn get_queue(db: &Mutex<Connection>) -> Result<Vec<QueueTrack>, String> {
     let conn = db.lock().map_err(|e| e.to_string())?;
+    query_queue(&conn)
+}
+
+fn query_queue(conn: &Connection) -> Result<Vec<QueueTrack>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT q.id, q.position, t.id, t.title, t.album_name, t.duration_ms,
@@ -710,6 +714,121 @@ pub fn get_queue(db: &Mutex<Connection>) -> Result<Vec<QueueTrack>, String> {
         })
         .map_err(|e| e.to_string())?;
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+// ── Up next (queue panel) ────────────────────────────────────────────────────
+
+/// The queue panel: the playing entry and what plays after it, in the order
+/// it will actually play (the shuffle order when shuffle is on).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct UpNext {
+    pub current: Option<QueueTrack>,
+    pub upcoming: Vec<QueueTrack>,
+    pub shuffled: bool,
+}
+
+pub fn get_up_next(app: &Backend) -> Result<UpNext, String> {
+    let db = app.state::<Mutex<Connection>>();
+    let conn = db.lock().map_err(|e| e.to_string())?;
+    let mut rows: Vec<Option<QueueTrack>> = query_queue(&conn)?.into_iter().map(Some).collect();
+    let len = rows.len() as i64;
+    let current = read_int(&conn, KEY_CURRENT_INDEX).filter(|&c| (0..len).contains(&c));
+    let shuffled = shuffle_enabled(&conn) && len > 0;
+    let order = shuffled.then(|| load_shuffle(app, &conn, len, current.unwrap_or(0)));
+    let (cur, next) = up_next_indices(order.as_ref(), current, len);
+    let mut take = |i: i64| rows.get_mut(i as usize).and_then(Option::take);
+    Ok(UpNext {
+        current: cur.and_then(&mut take),
+        upcoming: next.into_iter().filter_map(take).collect(),
+        shuffled,
+    })
+}
+
+/// Queue indices for the panel: (playing, upcoming in play order). Not
+/// started yet (no current index): the whole queue is upcoming.
+fn up_next_indices(order: Option<&ShuffleOrder>, current: Option<i64>, len: i64) -> (Option<i64>, Vec<i64>) {
+    match (order, current) {
+        (Some(o), Some(_)) => (o.current(), o.upcoming().to_vec()),
+        (Some(o), None) => (None, o.order.clone()),
+        (None, Some(c)) => (Some(c), (c + 1..len).collect()),
+        (None, None) => (None, (0..len).collect()),
+    }
+}
+
+/// Drag-to-reorder in "Up next": the entry at `upcoming[from]` moves to
+/// `upcoming[to]`. Shuffle on: reorders the unplayed shuffle order; off:
+/// moves the queue position. Either way it changes what plays next.
+pub fn move_up_next(app: Backend, from: usize, to: usize) -> Result<(), String> {
+    if from == to {
+        return Ok(());
+    }
+    {
+        let db = app.state::<Mutex<Connection>>();
+        let conn = db.lock().map_err(|e| e.to_string())?;
+        let len = queue_length(&conn)?;
+        let current = read_int(&conn, KEY_CURRENT_INDEX).filter(|&c| (0..len).contains(&c));
+        if shuffle_enabled(&conn) && current.is_some() {
+            let mut order = load_shuffle(&app, &conn, len, current.unwrap_or(0));
+            if order.move_upcoming(from, to) {
+                commit_shuffle(&app, &conn, &order)?;
+            }
+        } else {
+            let base = current.map_or(0, |c| c + 1);
+            let (a, b) = (base + from as i64, base + to as i64);
+            if a < len && b < len {
+                move_queue_position(&conn, a, b)?;
+            }
+        }
+    }
+    emit_state(&app);
+    Ok(())
+}
+
+/// Move the entry at position `a` to position `b`, shifting the ones in
+/// between; positions stay contiguous (one transaction).
+fn move_queue_position(conn: &Connection, a: i64, b: i64) -> Result<(), String> {
+    if a == b {
+        return Ok(());
+    }
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let run = |sql: &str, p: &[&dyn rusqlite::ToSql]| tx.execute(sql, p).map(|_| ()).map_err(|e| e.to_string());
+    run("UPDATE queue SET position = -1 WHERE position = ?1", &[&a])?;
+    if a < b {
+        run("UPDATE queue SET position = position - 1 WHERE position > ?1 AND position <= ?2", &[&a, &b])?;
+    } else {
+        run("UPDATE queue SET position = position + 1 WHERE position >= ?1 AND position < ?2", &[&b, &a])?;
+    }
+    run("UPDATE queue SET position = ?1 WHERE position = -1", &[&b])?;
+    tx.commit().map_err(|e| e.to_string())
+}
+
+/// The panel's Clear: drop everything but the playing track, which keeps
+/// playing. Nothing playing: clear the whole queue (and stop).
+pub fn clear_up_next(app: Backend) -> Result<(), String> {
+    {
+        let db = app.state::<Mutex<Connection>>();
+        let conn = db.lock().map_err(|e| e.to_string())?;
+        let len = queue_length(&conn)?;
+        let Some(cur) = read_int(&conn, KEY_CURRENT_INDEX).filter(|&c| (0..len).contains(&c)) else {
+            drop(conn);
+            return clear_queue(app);
+        };
+        keep_only_position(&conn, cur)?;
+        write_string(&conn, KEY_CURRENT_INDEX, "0")?;
+        if shuffle_enabled(&conn) {
+            commit_shuffle(&app, &conn, &ShuffleOrder { order: vec![0], pos: 0 })?;
+        }
+    }
+    emit_state(&app);
+    Ok(())
+}
+
+/// Delete every queue entry except the one at `pos`, which becomes 0.
+fn keep_only_position(conn: &Connection, pos: i64) -> Result<(), String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM queue WHERE position != ?1", [pos]).map_err(|e| e.to_string())?;
+    tx.execute("UPDATE queue SET position = 0", []).map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())
 }
 
 /// Replace the whole queue in one transaction. Row-by-row autocommit took ~7 s
@@ -1044,6 +1163,56 @@ mod tests {
         assert_eq!(track_at_index(&conn, 2).unwrap().unwrap().0, 2);
         assert_eq!(track_at_index(&conn, 3).unwrap().unwrap().0, 3);
         assert_eq!(track_at_index(&conn, 4).unwrap(), None);
+    }
+
+    fn order(conn: &Connection) -> Vec<i64> {
+        let mut st = conn.prepare("SELECT track_id FROM queue ORDER BY position").unwrap();
+        st.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect()
+    }
+
+    fn contiguous(conn: &Connection) -> bool {
+        let mut st = conn.prepare("SELECT position FROM queue ORDER BY position").unwrap();
+        let p: Vec<i64> = st.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+        p.iter().enumerate().all(|(i, &x)| x == i as i64)
+    }
+
+    #[test]
+    fn move_queue_position_down_and_up() {
+        let conn = test_db("move", 6);
+        replace_queue(&conn, &[0, 1, 2, 3, 4, 5]).unwrap();
+        // Last → right after the current one (position 1).
+        move_queue_position(&conn, 5, 1).unwrap();
+        assert_eq!(order(&conn), [0, 5, 1, 2, 3, 4]);
+        assert!(contiguous(&conn));
+        // And back down.
+        move_queue_position(&conn, 1, 5).unwrap();
+        assert_eq!(order(&conn), [0, 1, 2, 3, 4, 5]);
+        move_queue_position(&conn, 2, 3).unwrap();
+        assert_eq!(order(&conn), [0, 1, 3, 2, 4, 5]);
+        assert!(contiguous(&conn));
+        move_queue_position(&conn, 4, 4).unwrap();
+        assert_eq!(order(&conn), [0, 1, 3, 2, 4, 5]);
+    }
+
+    #[test]
+    fn keep_only_position_keeps_the_playing_track() {
+        let conn = test_db("keep", 5);
+        replace_queue(&conn, &[10, 11, 12, 13, 14].map(|x| x % 5)).unwrap();
+        keep_only_position(&conn, 2).unwrap();
+        assert_eq!(order(&conn), [2]);
+        assert!(contiguous(&conn));
+    }
+
+    #[test]
+    fn up_next_follows_play_order() {
+        // Shuffle off: after the current index.
+        assert_eq!(up_next_indices(None, Some(1), 4), (Some(1), vec![2, 3]));
+        assert_eq!(up_next_indices(None, Some(3), 4), (Some(3), vec![]));
+        // Not started: everything.
+        assert_eq!(up_next_indices(None, None, 3), (None, vec![0, 1, 2]));
+        // Shuffle on: the unplayed part of the order.
+        let o = ShuffleOrder { order: vec![2, 0, 3, 1], pos: 1 };
+        assert_eq!(up_next_indices(Some(&o), Some(0), 4), (Some(0), vec![3, 1]));
     }
 
     #[test]
