@@ -119,6 +119,75 @@ fn open_now(app: &Backend, mut paths: Vec<PathBuf>) {
     reveal(app);
 }
 
+// ── Drag and drop onto the window ─────────────────────────────────────────────
+
+/// What was dropped, resolved to music files.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Dropped {
+    /// Every playable file: dropped files, then each dropped folder's files
+    /// (recursively, sorted by name), in drop order.
+    pub songs: Vec<PathBuf>,
+    /// Dropped folders (they become library folders on "Add to library").
+    pub folders: Vec<PathBuf>,
+    /// Playable files dropped directly (not inside a dropped folder).
+    pub files: Vec<PathBuf>,
+}
+
+/// Resolve dropped paths. Folders are walked recursively without following
+/// folder links (no link loops); non-audio files are skipped.
+pub fn expand(paths: &[PathBuf]) -> Dropped {
+    let mut out = Dropped::default();
+    let mut seen = std::collections::HashSet::new();
+    for p in paths {
+        if p.is_dir() {
+            out.folders.push(p.clone());
+            for entry in walkdir::WalkDir::new(p).follow_links(false).sort_by_file_name().into_iter().flatten() {
+                let f = entry.path();
+                if entry.file_type().is_file() && is_playable(f) && seen.insert(f.to_path_buf()) {
+                    out.songs.push(f.to_path_buf());
+                }
+            }
+        } else if p.is_file() && is_playable(p) && seen.insert(p.clone()) {
+            out.files.push(p.clone());
+            out.songs.push(p.clone());
+        }
+    }
+    out
+}
+
+/// "Play now": import (if new) and replace the queue.
+pub fn play_dropped(app: &Backend, songs: &[PathBuf]) -> Result<(), String> {
+    let ids = crate::scanner::import_paths(app, songs);
+    app.emit(BackendEvent::LibraryChanged);
+    if ids.is_empty() {
+        return Err("None of the dropped files could be read.".into());
+    }
+    crate::commands::player::set_queue_and_play(app.clone(), ids, 0)
+}
+
+/// "Add to queue": import (if new) and append.
+pub fn queue_dropped(app: &Backend, songs: &[PathBuf]) -> Result<(), String> {
+    let ids = crate::scanner::import_paths(app, songs);
+    app.emit(BackendEvent::LibraryChanged);
+    crate::commands::player::add_tracks_to_queue(app.clone(), ids)
+}
+
+/// "Add to library": dropped folders become library folders and are
+/// scanned (as in Settings → Library); loose files are imported.
+pub fn add_dropped_to_library(app: &Backend, d: &Dropped) -> Result<(), String> {
+    for f in &d.folders {
+        crate::commands::folders::add_folder(f.to_string_lossy().into_owned(), app.clone(), app.db())?;
+    }
+    if !d.files.is_empty() {
+        crate::scanner::import_paths(app, &d.files);
+    }
+    if !d.folders.is_empty() {
+        crate::commands::scan::scan_library(app.clone(), false)?;
+    }
+    app.emit(BackendEvent::LibraryChanged);
+    Ok(())
+}
+
 /// Bring Halo forward: the UI keeps the mini player if that's what's showing
 /// (the user chose the compact view), otherwise shows the main window.
 fn reveal(app: &Backend) {
@@ -187,5 +256,58 @@ mod tests {
             Path::new("/"),
         );
         assert_eq!(got, vec![PathBuf::from("/m/பாடல்.mp3"), PathBuf::from("/m/பா.flac")]);
+    }
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("halo-drop-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn touch(p: &Path) {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, b"").unwrap();
+    }
+
+    #[test]
+    fn expand_walks_folders_sorted_and_skips_non_audio() {
+        let root = tmp("walk");
+        let album = root.join("Album");
+        for f in ["02 b.flac", "01 a.mp3", "cover.jpg", "notes.txt", "CD2/01 c.ogg"] {
+            touch(&album.join(f));
+        }
+        let loose = root.join("single.m4a");
+        touch(&loose);
+        touch(&root.join("readme.txt"));
+        let d = expand(&[loose.clone(), album.clone(), root.join("readme.txt"), root.join("missing.mp3")]);
+        assert_eq!(
+            d.songs,
+            vec![loose.clone(), album.join("01 a.mp3"), album.join("02 b.flac"), album.join("CD2/01 c.ogg")]
+        );
+        assert_eq!(d.folders, vec![album]);
+        assert_eq!(d.files, vec![loose]);
+    }
+
+    #[test]
+    fn expand_dedupes_and_handles_nothing_playable() {
+        let root = tmp("dupe");
+        let f = root.join("a.mp3");
+        touch(&f);
+        // The same file dropped twice, and inside a dropped folder too.
+        let d = expand(&[f.clone(), f.clone(), root.clone()]);
+        assert_eq!(d.songs, vec![f]);
+        touch(&root.join("x.jpg"));
+        assert!(expand(&[root.join("x.jpg")]).songs.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn expand_does_not_follow_folder_link_loops() {
+        let root = tmp("loop");
+        touch(&root.join("a.mp3"));
+        std::os::unix::fs::symlink(&root, root.join("loop")).unwrap();
+        let d = expand(&[root.clone()]);
+        assert_eq!(d.songs, vec![root.join("a.mp3")]);
     }
 }

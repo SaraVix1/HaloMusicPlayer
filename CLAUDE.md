@@ -91,6 +91,7 @@ crates/
         │                       # now playing: blurred art, cover, synced lyrics excerpt, transport),
         │                       # queue_panel (≡ "Up next": slide-in, real play order, drag / remove / clear),
         │                       # context_menu (right-click on songs / albums / artists, at the cursor),
+        │                       # drop (drag files / folders onto the window: Play now / queue / library),
         │                       # palette (Ctrl+K: multi-word ranked search, Top result, Enter =
         │                       # play now keeping the queue via `player::insert_next`, recent searches),
         │                       # lyrics (panel), mini (mini-player window)
