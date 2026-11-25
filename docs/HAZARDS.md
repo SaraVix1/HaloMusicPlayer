@@ -296,6 +296,42 @@ Saves multiply by the same scale and clamp again; a window dropped outside the w
 
 ---
 
+## Memory: glibc keeps freed heap from short-lived threads
+
+**Symptom.** RSS climbs by 100–300 MB while skipping through songs and never comes back down, although nothing leaks (heap profilers show the memory freed).
+
+**Cause.** glibc gives each allocating thread its own arena (up to 8 per core) and seldom returns freed pages to the OS. Every track change runs blocking tasks on tokio's pool (waveform decode, accent / blurred cover decode, lyrics), and large freed buffers raise glibc's mmap threshold, so later big buffers come from those arenas and stay resident.
+
+**Fix.** [`mem::limit_arenas`](../crates/halo-backend/src/mem.rs) caps glibc at 2 arenas, first thing in `main` (an explicit `MALLOC_ARENA_MAX` wins), and the ticker calls `mem::trim` (`malloc_trim`) 3 s after a track change; the thumbnail worker trims when its queue empties. Don't buffer a whole song: [`extract_peaks`](../crates/halo-backend/src/scanner/waveform.rs) streams block sums (it used to hold ~50 MB per track change).
+
+---
+
+## Memory: never draw a full-size cover in a list
+
+**Symptom.** Hundreds of MB once Albums / Home have been shown; slow first paint of a grid.
+
+**Cause.** `image::Handle::from_path(original)` decodes the whole file (covers in the art cache go up to 1440 px, ~8 MB of pixels each) even when drawn at 40 px, and the renderer keeps it while it is on screen.
+
+**Fix.** Go through `ui::art` / `ui::art_sized` (or [`thumbs::pick`](../crates/halo-app/src/thumbs.rs) directly) with the drawn size: ≤ 64 px gets a 128 px thumbnail, ≤ 192 px a 384 px one, bigger the original (full-screen cover). A missing thumbnail shows the placeholder and is made by the `halo-thumbs` worker, which wakes the UI (`Message::ThumbsReady`). Worker threads that only need colours (accent, blurred background) use `thumbs::ensure(path, SMALL)`.
+
+---
+
+## Renderer: wgpu on Linux is limited to Vulkan
+
+**Symptom.** With `WGPU_BACKEND` unset, startup spends ~550 ms before the first frame and RSS is ~245 MB, most of it graphics drivers.
+
+**Cause.** iced's window compositor asks wgpu for `Backends::all()`, so OpenGL / EGL is initialised next to Vulkan. (The Vulkan loader also loads every installed ICD, lavapipe + LLVM included; disabling it saved only ~4 MB, so it is left alone.)
+
+**Fix.** `prefer_vulkan` in [main.rs](../crates/halo-app/src/main.rs) sets `WGPU_BACKEND=vulkan` before any thread starts (unless set). Without a Vulkan driver iced falls back to tiny-skia by itself, as long as `ICED_BACKEND` is not forced. tiny-skia is lighter at rest (~67 MB, ~80 ms startup) but costs ~35 % of a core while covers fade at 1200×750, growing with window pixels.
+
+---
+
+## Profiling: `HALO_PROFILE=1`
+
+`HALO_PROFILE=1` prints startup marks (`profile::mark`), every 5 s the number of messages per kind (`app::profile_count`; printed when the **next** message arrives, so a quiet stretch shows up late, not as zeros) and which player-state fields changed. [scripts/perf-measure.py](../scripts/perf-measure.py) measures startup / memory / CPU on a sandboxed copy of the library (volume 0, Last.fm signed out). The ticker sends `PlayerState` only when it changed; something that redraws 4×/s while paused is a regression.
+
+---
+
 ## Testing the UI headless (Xvfb)
 
 **Symptom.** Under Xvfb the app panics (`libxkbcommon-x11.so could not be loaded`), or keyboard input (xdotool) never reaches the window, or the audio backend fails to start.

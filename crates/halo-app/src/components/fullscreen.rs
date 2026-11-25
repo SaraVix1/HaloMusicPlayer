@@ -162,7 +162,7 @@ fn load_background(app: &mut Halo) -> Task<Message> {
 /// The art shrunk to `BG_SIDE` px and Gaussian-blurred: a few KB that look
 /// smooth when stretched over the window. `(width, height, RGBA)`.
 pub fn blurred(path: &str) -> Option<(u32, u32, Vec<u8>)> {
-    let img = ::image::open(path).ok()?;
+    let img = ::image::open(crate::thumbs::ensure(path, crate::thumbs::SMALL)).ok()?;
     Some(blur_rgba(&img.thumbnail(BG_SIDE, BG_SIDE).into_rgba8()))
 }
 

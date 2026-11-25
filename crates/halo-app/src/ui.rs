@@ -265,7 +265,9 @@ pub fn art_sized<'a, M: 'a>(
     icon_basis: f32,
     radius: f32,
 ) -> Element<'a, M> {
-    match path.filter(|p| !p.is_empty() && file_exists(p)) {
+    // A thumbnail sized for `icon_basis` (the drawn size); the placeholder
+    // while it is being made (`thumbs`).
+    match path.filter(|p| !p.is_empty() && file_exists(p)).and_then(|p| crate::thumbs::pick(p, icon_basis)) {
         Some(p) => image(image::Handle::from_path(p))
             .width(width)
             .height(height)

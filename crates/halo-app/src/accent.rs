@@ -17,7 +17,7 @@ const MIN_SHARE: f32 = 0.03;
 /// Load `path`, shrink it and pick its accent. `None`: unreadable, or no
 /// vivid colour (the caller falls back to Halo's default accent).
 pub fn from_path(path: &str) -> Option<Color> {
-    let img = image::open(path).ok()?;
+    let img = image::open(crate::thumbs::ensure(path, crate::thumbs::SMALL)).ok()?;
     from_image(&img.thumbnail(64, 64).into_rgba8())
 }
 

@@ -55,6 +55,8 @@ pub enum Message {
     AccentPicked(Option<i64>, Option<iced::Color>),
     /// Redraw tick while a cover / accent fade runs.
     FadeTick,
+    /// Cover thumbnails finished: redraw to show them (`thumbs`).
+    ThumbsReady,
     Error(String),
     /// Several messages handled in order.
     Batch(Vec<Message>),
@@ -318,6 +320,7 @@ impl Halo {
                 }
                 Task::none()
             }
+            Message::ThumbsReady => Task::none(),
             Message::FadeTick => {
                 self.fades.tick();
                 Task::none()
@@ -481,6 +484,7 @@ impl Halo {
             },
             BackendEvent::LibraryChanged => {
                 crate::ui::invalidate_art_cache();
+                crate::thumbs::invalidate();
                 pages::on_library_changed(self)
             }
             BackendEvent::ScanProgress(p) => pages::on_scan_progress(self, p),
@@ -777,6 +781,7 @@ impl Halo {
             Subscription::run_with(BackendStream(self.backend.clone()), backend_events)
                 .map(Message::Backend),
             window::close_requests().map(Message::CloseRequested),
+            Subscription::run(crate::thumbs::events).map(|()| Message::ThumbsReady),
             window::events().map(|(id, e)| Message::WindowEvent(id, e)),
             iced::system::theme_changes().map(Message::SystemTheme),
             tray::events().map(Message::Tray),

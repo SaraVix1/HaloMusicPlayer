@@ -95,7 +95,7 @@ impl Fades {
         let p = self.art_progress();
         // New art over the old one (no dip in brightness mid-fade); a missing
         // new cover just shows its placeholder at once.
-        let top: Element<'a, Message> = match path.filter(|p| crate::ui::art_exists(p)) {
+        let top: Element<'a, Message> = match path.filter(|p| crate::ui::art_exists(p)).and_then(|p| crate::thumbs::pick(p, size)) {
             Some(p_) => image(image::Handle::from_path(p_))
                 .width(Length::Fixed(size))
                 .height(Length::Fixed(size))

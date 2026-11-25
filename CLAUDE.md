@@ -56,6 +56,8 @@ crates/
 │       │                       # SleepTimer, LastFmState, OpenFilesState, FolderWatcher, media controls,
 │       │                       # AppPaths; typed state::<T>() lookups; BackendEvent channel; 250ms ticker;
 │       │                       # start_media_controls(hwnd); handle_launch_files / handle_forwarded_args
+│       ├── mem.rs              # glibc arena cap + malloc_trim (Linux)
+│       ├── profile.rs          # HALO_PROFILE=1 startup marks / counters (scripts/perf-measure.py)
 │       ├── platform.rs         # Windows AUMID + Start-menu shortcut (SMTC name); call before any window
 │       ├── open_files.rs       # "Open with Halo": argv → playable paths, 300ms-coalesced enqueue
 │       ├── watcher.rs          # notify-based folder watcher, 2s debounce → rescan
@@ -86,6 +88,7 @@ crates/
         ├── ui.rs               # small builders: tooltip, art, stars, toggle, modal, progress, spinners…
         ├── format.rs           # duration / relative time / plural helpers
         ├── fade.rs             # cover cross-fade + accent glide on song change (tick only while running)
+        ├── thumbs.rs           # cover thumbnails on disk (128 / 384 px) + worker; `ui::art` picks by drawn size
         ├── shortcuts.rs        # Space / ←→ / Ctrl+←→ / Ctrl+L and which keys reach on_key (not while typing)
         ├── tray.rs             # tray-icon + menu (GTK thread on Linux), events subscription
         ├── single_instance.rs  # per-user local socket, claimed before Backend::start: forward
@@ -136,7 +139,7 @@ Backend threads talk back through `BackendEvent`s (`PlayerState`, `LibraryChange
 
 ### State ticker (backend.rs)
 
-A 250 ms thread drives: sleep-timer tick, `player::handle_audio_events` (track end → advance + stats; near end → crossfade), output-device follow (~1 s, `PlayerHandle::rebuild_output`), `persist_playback_progress` (~1 s), Last.fm now-playing on track change, OS media-control sync, then sends `BackendEvent::PlayerState`. Resume-on-launch and folder watching are opt-in settings (see HAZARDS for their semantics).
+A 250 ms thread drives: sleep-timer tick, `player::handle_audio_events` (track end → advance + stats; near end → crossfade), output-device follow (~1 s, `PlayerHandle::rebuild_output`), `persist_playback_progress` (~1 s), Last.fm now-playing on track change, OS media-control sync, then sends `BackendEvent::PlayerState` — only when it differs from the last one (paused = no redraws). 3 s after a track change it also trims the heap (`mem::trim`, HAZARDS). Resume-on-launch and folder watching are opt-in settings (see HAZARDS for their semantics).
 
 ### Windows (iced daemon)
 
